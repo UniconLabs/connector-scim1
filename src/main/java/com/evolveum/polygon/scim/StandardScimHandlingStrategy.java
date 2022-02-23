@@ -1090,7 +1090,12 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 		Boolean isComplex = null;
 		Map<String, Object> processedParameters = new HashMap<String, Object>();
 
-		String sringReferenceValue = (String) referenceValues.get(position);
+		String sringReferenceValue;
+		try {
+			sringReferenceValue = (String) referenceValues.get(position);
+		} catch (ClassCastException ce) {
+			sringReferenceValue = ((JSONObject) referenceValues.get(position)).getString("value");
+		}
 
 		for (String subAttributeKeyNames : subAttributeMap.keySet()) {
 			if (!TYPE.equals(subAttributeKeyNames)) {
@@ -1593,6 +1598,11 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 			LOGGER.warn(error);
 			break;
 		}
+	}
+
+	@Override
+	public String getStrategyName() {
+		return "standard";
 	}
 
 	public void handleBadRequest(String error) {

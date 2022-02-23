@@ -860,5 +860,10 @@ public interface HandlingStrategy {
  * 		 an error occurred while processing the query http response
  */
 	public void handleInvalidStatus(String errorPitch, String responseString, String situation, int statusCode) throws ParseException, IOException ;
-	
+
+	/**
+	 * Returns the name of the strategy instance
+	 * @return
+	 */
+	public String getStrategyName ();
 }

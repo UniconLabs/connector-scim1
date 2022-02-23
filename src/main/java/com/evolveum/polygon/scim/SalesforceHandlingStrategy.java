@@ -315,4 +315,9 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 		throw new ConnectorException(error);
 
 	}
+
+	@Override
+	public String getStrategyName() {
+		return "salesforce";
+	}
 }

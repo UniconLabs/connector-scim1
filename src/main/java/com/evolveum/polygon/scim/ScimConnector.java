@@ -189,29 +189,29 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 	@Override
 	public void init(Configuration configuration) {
-		String[] loginUrlParts;
+		String loginUrl;
 		LOGGER.info("Initiation");
 		this.configuration = (ScimConnectorConfiguration) configuration;
 		this.configuration.validate();
 
 		if (this.configuration.getLoginURL() != null && !this.configuration.getLoginURL().isEmpty()) {
-
-			loginUrlParts = this.configuration.getLoginURL().split("\\."); // e.g.
-			// https://login.salesforce.com
-
+			loginUrl = this.configuration.getLoginURL();
 		} else {
-
-			loginUrlParts = this.configuration.getBaseUrl().split("\\."); // e.g.
+			loginUrl = this.configuration.getBaseUrl();
 		}
-		// https://login.salesforce.com
-		if (loginUrlParts.length >= 2) {
-			providerName = loginUrlParts[1];
-		}
-		StrategyFetcher fetcher = new StrategyFetcher();
-		strategy = fetcher.fetchStrategy(providerName);
 
+		strategy = new StrategyFetcher().fetchStrategy(loginUrl);
+		providerName = strategy.getStrategyName();
+
+		if (providerName.equalsIgnoreCase("standard")) {
+			final String[] loginUrlParts = loginUrl.split("\\.");
+			if (loginUrlParts.length >= 2) {
+				providerName = loginUrlParts[1];
+			} else {
+				providerName = "";
+			}
+		}
 		LOGGER.info("The provider name is {0}", providerName);
-
 	}
 
 	/**

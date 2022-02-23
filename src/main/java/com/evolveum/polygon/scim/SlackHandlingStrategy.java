@@ -508,4 +508,9 @@ public class SlackHandlingStrategy extends StandardScimHandlingStrategy implemen
 			throw new ConnectorException(error);
 	}
 
+	@Override
+	public String getStrategyName() {
+		return "slack";
+	}
+
 }
