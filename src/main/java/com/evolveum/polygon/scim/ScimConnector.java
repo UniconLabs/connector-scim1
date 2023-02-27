@@ -205,8 +205,8 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (providerName.equalsIgnoreCase("standard")) {
 			final String[] loginUrlParts = loginUrl.split("\\.");
-			if (loginUrlParts.length >= 2) {
-				providerName = loginUrlParts[1];
+		if (loginUrlParts.length >= 2) {
+			providerName = loginUrlParts[1];
 			} else {
 				providerName = "";
 			}

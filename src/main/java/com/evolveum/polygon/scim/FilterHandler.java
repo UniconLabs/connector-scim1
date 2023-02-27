@@ -31,23 +31,7 @@ import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueE
 import org.identityconnectors.framework.common.objects.Attribute;
 import org.identityconnectors.framework.common.objects.AttributeBuilder;
 import org.identityconnectors.framework.common.objects.AttributeUtil;
-import org.identityconnectors.framework.common.objects.filter.AndFilter;
-import org.identityconnectors.framework.common.objects.filter.AttributeFilter;
-import org.identityconnectors.framework.common.objects.filter.CompositeFilter;
-import org.identityconnectors.framework.common.objects.filter.ContainsAllValuesFilter;
-import org.identityconnectors.framework.common.objects.filter.ContainsFilter;
-import org.identityconnectors.framework.common.objects.filter.EndsWithFilter;
-import org.identityconnectors.framework.common.objects.filter.EqualsFilter;
-import org.identityconnectors.framework.common.objects.filter.Filter;
-import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
-import org.identityconnectors.framework.common.objects.filter.FilterVisitor;
-import org.identityconnectors.framework.common.objects.filter.GreaterThanFilter;
-import org.identityconnectors.framework.common.objects.filter.GreaterThanOrEqualFilter;
-import org.identityconnectors.framework.common.objects.filter.LessThanFilter;
-import org.identityconnectors.framework.common.objects.filter.LessThanOrEqualFilter;
-import org.identityconnectors.framework.common.objects.filter.NotFilter;
-import org.identityconnectors.framework.common.objects.filter.OrFilter;
-import org.identityconnectors.framework.common.objects.filter.StartsWithFilter;
+import org.identityconnectors.framework.common.objects.filter.*;
 
 // Missing filterVisitor methods/filters from SCIM v1 specification: not equal, present
 
@@ -208,6 +192,21 @@ public class FilterHandler implements FilterVisitor<StringBuilder, String> {
 			LOGGER.error("Filter attribute key name EMPTY");
 			throw new InvalidAttributeValueException("No attribute key name provided");
 		}
+	}
+
+	/**
+	 * Implementation of the "visitEqualsIgnoreCaseFilter" filter method.
+	 *
+	 * @param p
+	 *            Helper parameter which may contain the resource provider name
+	 *            used for workaround purposes.
+	 * @param filter
+	 *            The filter or list of filters being processed.
+	 * @return The processed filter.
+	 */
+	@Override
+	public StringBuilder visitEqualsIgnoreCaseFilter(String s, EqualsIgnoreCaseFilter equalsIgnoreCaseFilter) {
+		throw new UnsupportedOperationException("Filter type is not supported: " + equalsIgnoreCaseFilter.getClass());
 	}
 
 	/**
