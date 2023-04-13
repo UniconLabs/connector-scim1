@@ -44,7 +44,7 @@ public class ParserSchemaScim {
 	private static final Log LOGGER = Log.getLog(ParserSchemaScim.class);
 	private static final String OMMITATEDRIBUTE = "schema"; //TODO add to appropriate handling strategy
 	/**
-	 * Iterates trough the provided json for attribute. If an attribute is an
+	 * Iterates through the provided json for attribute. If an attribute is an
 	 * instance of "JSONObject" then it's marked as a "higher layer" attribute
 	 * (e.g."endpoint": "/Users") else if the attribute is an instance of
 	 * "JSONArray" the attribute is processed further as a list of sub
@@ -60,8 +60,9 @@ public class ParserSchemaScim {
 	public void parseSchema(JSONObject schemaJson, HandlingStrategy strategy) {
 		hlAttributeMap = new HashMap<String, String>();
 		attributeMap = new HashMap<String, Map<String, Object>>();
-		LOGGER.info("Bellow is a logged message");
+		LOGGER.info("Below is a logged message");
 		LOGGER.info("The schema json which is about to be processed {0}", schemaJson);
+
 		for (String attributeName : schemaJson.keySet()) {
 			LOGGER.info("Processed attribute {0}", attributeName);
 			Object hlAttribute = schemaJson.get(attributeName);

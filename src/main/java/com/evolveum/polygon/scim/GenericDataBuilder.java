@@ -21,7 +21,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
@@ -29,8 +28,8 @@ import org.identityconnectors.framework.common.objects.Attribute;
 import org.identityconnectors.framework.common.objects.AttributeUtil;
 import org.identityconnectors.framework.common.objects.OperationalAttributes;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
-
 import com.evolveum.polygon.common.GuardedStringAccessor;
 
 /**
@@ -44,24 +43,27 @@ import com.evolveum.polygon.common.GuardedStringAccessor;
  */
 public class GenericDataBuilder implements ObjectTranslator {
 
-	private static final String SEPPARATOR = "-";
-	private static final String FORBIDENSEPPARATOR = ":";
 	private static final Log LOGGER = Log.getLog(GenericDataBuilder.class);
-	private String operation;
+	private final String operation;
+	private final int scimVersion;
 
 	/**
 	 * Constructor used to populate the local variable "operation".
 	 * 
 	 * @param operation
-	 *            String variable indicating that the "delete" operation
+	 *            String variable indicating that the delete (SCIM v1)/remove (SCIM v2) operation
 	 *            parameter should be added in the constructed json object. The
 	 *            values which this parameter might acquire:
-	 *            <li>"delete"
-	 *            <li>"" - or empty string
+	 *            <li>"remove"</li>
+	 *            <li>"add"</li>
+	 *            <li>"replace"</li>
+	 *
+	 * @param scimVersion
+	 * 				The SCIM protocol version as an integer.
 	 **/
-	public GenericDataBuilder(String operation) {
+	public GenericDataBuilder(final String operation, final int scimVersion) {
 		this.operation = operation;
-
+		this.scimVersion = scimVersion;
 	}
 
 	/**
@@ -77,28 +79,59 @@ public class GenericDataBuilder implements ObjectTranslator {
 	 *            A set of attributes which are injected into the provided set.
 	 * @return The complete json representation of the provided data set.
 	 */
-	public JSONObject translateSetToJson(Set<Attribute> imsAttributes, Set<Attribute> injectedAttributes,
-			String resourceEndPoint) {
+	public JSONObject translateSetToJson(final Set<Attribute> imsAttributes, final Set<Attribute> injectedAttributes,
+			final String resourceEndPoint) {
 
-		LOGGER.info("Building account JsonObject");
+		LOGGER.info("Building account JSONObject...");
+		final JSONObject completeJsonObj = buildValueJSONObject(imsAttributes, injectedAttributes, resourceEndPoint);
 
-		JSONObject completeJsonObj = new JSONObject();
+		if (scimVersion == 1) {
+			LOGGER.ok("Returning SCIM V1 JSON Object of {0}", completeJsonObj);
+			return completeJsonObj;
 
-		Set<Attribute> multiValueAttribute = new HashSet<Attribute>(); // e.g.
+		} else if (scimVersion == 2) {
+			LOGGER.ok("Returning SCIM V2 JSON Object of {0}", completeJsonObj);
+			return buildSCIMv2JSONObject(completeJsonObj);
+
+		} else
+			LOGGER.error("Non-supported SCIM version of {0} return empty JSON object!", scimVersion);
+			return new JSONObject();
+	}
+
+	private JSONObject buildSCIMv2JSONObject(final JSONObject valueObject) throws JSONException {
+		final JSONObject scimV2PayloadObject = new JSONObject();
+		scimV2PayloadObject.put(SCIM_V2_SCHEMAS, List.of(SCIM_V2_SCHEMA_PATCH));
+
+		//TODO do we need handle remove? Depending on implementation may need to separate attributes into discrete operations?
+		final JSONObject op = new JSONObject();
+		op.put(SCIM_V2_OP, this.operation);
+		op.put(SCIM_V2_VALUE, valueObject); //TODO may need to unravel, handle delete/remove?
+		scimV2PayloadObject.put(SCIM_V2_OPERATIONS, List.of(op));
+
+		LOGGER.ok("Processed SCIM v2 JSON Complete Payload of {0}.", scimV2PayloadObject);
+		return scimV2PayloadObject;
+	}
+
+	private JSONObject buildValueJSONObject(final Set<Attribute> imsAttributes, final Set<Attribute> injectedAttributes,
+											final String resourceEndPoint) {
+
+		LOGGER.ok("Building value JsonObject");
+		final JSONObject valueJSONObject = new JSONObject();
+		final Set<Attribute> multiValueAttribute = new HashSet<>(); // e.g.
 		// name.givenName
-		Set<Attribute> multiLayerAttribute = new HashSet<Attribute>(); // e.g.
+		final Set<Attribute> multiLayerAttribute = new HashSet<>(); // e.g.
 		// emails.work.value
-		Set<Attribute> extensionAttribute = new HashSet<Attribute>(); // e.g.
+		final Set<Attribute> extensionAttribute = new HashSet<>(); // e.g.
 		// urn|scim|schemas|extension|enterprise|1.0.division
 
 		if (injectedAttributes != null) {
-			for (Attribute injectedAttribute : injectedAttributes) {
-				String attributeName = injectedAttribute.getName();
+			for (final Attribute injectedAttribute : injectedAttributes) {
+				final String attributeName = injectedAttribute.getName();
 				multiValueAttribute.add(injectedAttribute);
 
 				if (attributeName.contains(DOT)) {
 
-					String[] keyParts = attributeName.split(DELIMITER); // e.g.
+					final String[] keyParts = attributeName.split(DELIMITER); // e.g.
 					// schemas.default.blank
 					if (keyParts.length == 2) {
 
@@ -108,21 +141,20 @@ public class GenericDataBuilder implements ObjectTranslator {
 					}
 				} else {
 
-					completeJsonObj.put(attributeName, AttributeUtil.getSingleValue(injectedAttribute));
+					valueJSONObject.put(attributeName, AttributeUtil.getSingleValue(injectedAttribute));
 				}
 			}
 
 		}
 
-		for (Attribute attribute : imsAttributes) {
+		for (final Attribute attribute : imsAttributes) {
 
 			// LOGGER.info("Update or create set attribute: {0}", attribute);
-
 			String attributeName = attribute.getName();
 
 			if (attributeName.contains(DOT)) {
 
-				String[] keyParts = attributeName.split(DELIMITER); // e.g.
+				final String[] keyParts = attributeName.split(DELIMITER); // e.g.
 				// emails.work.value
 				if (keyParts.length == 2) {
 
@@ -132,55 +164,48 @@ public class GenericDataBuilder implements ObjectTranslator {
 				}
 
 			} else if (OperationalAttributes.ENABLE_NAME.equals(attributeName)) {
-				completeJsonObj.put("active", AttributeUtil.getSingleValue(attribute));
+				valueJSONObject.put("active", AttributeUtil.getSingleValue(attribute));
 			} else if (OperationalAttributes.PASSWORD_NAME.equals(attributeName)) {
 
-				GuardedString guardedString = (GuardedString) AttributeUtil.getSingleValue(attribute);
-				GuardedStringAccessor accessor = new GuardedStringAccessor();
+				final GuardedString guardedString = (GuardedString) AttributeUtil.getSingleValue(attribute);
+				final GuardedStringAccessor accessor = new GuardedStringAccessor();
 				guardedString.access(accessor);
 
-				completeJsonObj.put("password", accessor.getClearString());
-			} else if (attributeName.contains(SEPPARATOR)) {
+				valueJSONObject.put("password", accessor.getClearString());
+			} else if (attributeName.contains(SEPARATOR)) {
 
 				extensionAttribute.add(attribute);
 
 			} else if ("__NAME__".equals(attributeName)) {
 				if (resourceEndPoint.equals("Users")) {
 
-					completeJsonObj.put("userName", AttributeUtil.getSingleValue(attribute));
+					valueJSONObject.put("userName", AttributeUtil.getSingleValue(attribute));
 
 				} else {
 
-					completeJsonObj.put("displayName", AttributeUtil.getSingleValue(attribute));
+					valueJSONObject.put("displayName", AttributeUtil.getSingleValue(attribute));
 				}
 
 			} else {
 
-				if (attributeName.contains(FORBIDENSEPPARATOR)) {
+				if (attributeName.contains(FORBIDDEN_SEPARATOR)) {
 
-					attributeName = attributeName.replace(FORBIDENSEPPARATOR, SEPPARATOR);
+					attributeName = attributeName.replace(FORBIDDEN_SEPARATOR, SEPARATOR);
 				}
 
-				completeJsonObj.put(attributeName, AttributeUtil.getSingleValue(attribute));
+				valueJSONObject.put(attributeName, AttributeUtil.getSingleValue(attribute));
 			}
 
 		}
 
-		if (multiValueAttribute != null) {
-			buildMultivalueAttribute(multiValueAttribute, completeJsonObj);
-		}
+		buildMultiValueAttribute(multiValueAttribute, valueJSONObject);
 
-		if (multiLayerAttribute != null) {
-			buildLayeredAtrribute(multiLayerAttribute, completeJsonObj);
-		}
+		buildLayeredAttribute(multiLayerAttribute, valueJSONObject);
 
-		if (extensionAttribute != null) {
-			buildExtensionAttribute(extensionAttribute, completeJsonObj);
-		}
-		// LOGGER.info("Json object returned from json data builder: {0}",
-		// completeJsonObj);
+		buildExtensionAttribute(extensionAttribute, valueJSONObject);
 
-		return completeJsonObj;
+		LOGGER.ok("Json value object returned from json data builder: {0}", valueJSONObject);
+		return valueJSONObject;
 
 	}
 
@@ -196,23 +221,24 @@ public class GenericDataBuilder implements ObjectTranslator {
 	 *            methods.
 	 * @return A json representation of the provided data set.
 	 */
-	private JSONObject buildLayeredAtrribute(Set<Attribute> multiLayerAttribute, JSONObject json) {
+	private JSONObject buildLayeredAttribute(final Set<Attribute> multiLayerAttribute, final JSONObject json) {
 
-		String mainAttributeName = "";
-		List<String> checkedNames = new ArrayList<String>();
-		for (Attribute i : multiLayerAttribute) {
+		String mainAttributeName;
+		final List<String> checkedNames = new ArrayList<>();
+		for (final Attribute i : multiLayerAttribute) {
 
-			String attributeName = i.getName();
-			String[] attributeNameParts = attributeName.split(DELIMITER); // e.q.
+			final String attributeName = i.getName();
+			final String[] attributeNameParts = attributeName.split(DELIMITER); // e.q.
 			// email.work.value
 
 			if (checkedNames.contains(attributeNameParts[0])) {
-
+				//TODO?
 			} else {
-				Set<Attribute> subAttributeLayerSet = new HashSet<Attribute>();
+				final Set<Attribute> subAttributeLayerSet = new HashSet<>();
 				mainAttributeName = attributeNameParts[0];
 				checkedNames.add(mainAttributeName);
-				for (Attribute j : multiLayerAttribute) {
+
+				for (final Attribute j : multiLayerAttribute) {
 
 					String secondLoopAttributeName = j.getName();
 					String[] secondLoopAttributeNameParts = secondLoopAttributeName.split(DELIMITER); // e.q.
@@ -223,52 +249,55 @@ public class GenericDataBuilder implements ObjectTranslator {
 					}
 				}
 
-				String canonicaltypeName = "";
+				String canonicalTypeName;
 				boolean writeToArray = true;
-				JSONArray jArray = new JSONArray();
+				final JSONArray jArray = new JSONArray();
 
-				List<String> checkedTypeNames = new ArrayList<String>();
-				for (Attribute k : subAttributeLayerSet) {
+				final List<String> checkedTypeNames = new ArrayList<>();
+				for (final Attribute k : subAttributeLayerSet) {
 
-					String nameFromSubSet = k.getName();
-					String[] nameFromSubSetParts = nameFromSubSet.split(DELIMITER); // e.q.
+					final String nameFromSubSet = k.getName();
+					final String[] nameFromSubSetParts = nameFromSubSet.split(DELIMITER); // e.q.
 					// email.work.value
 
 					if (checkedTypeNames.contains(nameFromSubSetParts[1])) {
+						//TODO?
 					} else {
-						JSONObject multivalueObject = new JSONObject();
-						canonicaltypeName = nameFromSubSetParts[1];
+						JSONObject multiValueObject = new JSONObject();
+						canonicalTypeName = nameFromSubSetParts[1];
 
-						checkedTypeNames.add(canonicaltypeName);
-						for (Attribute subSetAttribute : subAttributeLayerSet) {
-							String secondLoopNameFromSubSetParts = subSetAttribute.getName();
-							String[] finalSubAttributeNameParts = secondLoopNameFromSubSetParts.split(DELIMITER); // e.q.
+						checkedTypeNames.add(canonicalTypeName);
+						for (final Attribute subSetAttribute : subAttributeLayerSet) {
+
+							final String secondLoopNameFromSubSetParts = subSetAttribute.getName();
+							final String[] finalSubAttributeNameParts = secondLoopNameFromSubSetParts.split(DELIMITER); // e.q.
+
 							// email.work.value
-							if (finalSubAttributeNameParts[1].equals(canonicaltypeName)) {
+							if (finalSubAttributeNameParts[1].equals(canonicalTypeName)) {
 								if (subSetAttribute.getValue() != null && subSetAttribute.getValue().size() > 1) {
 									writeToArray = false;
-									List<Object> valueList = subSetAttribute.getValue();
+									final List<Object> valueList = subSetAttribute.getValue();
 
-									for (Object attributeValue : valueList) {
-										multivalueObject = new JSONObject();
-										multivalueObject.put(finalSubAttributeNameParts[2], attributeValue);
+									for (final Object attributeValue : valueList) {
+										multiValueObject = new JSONObject();
+										multiValueObject.put(finalSubAttributeNameParts[2], attributeValue);
 
 										if (!DEFAULT.equals(nameFromSubSetParts[1])) {
-											multivalueObject.put(TYPE, nameFromSubSetParts[1]);
+											multiValueObject.put(TYPE, nameFromSubSetParts[1]);
 										}
-										if (operation != null) {
-											if (DELETE.equals(operation)) {
-												multivalueObject.put(OPERATION, DELETE);
-											}
+
+										if (scimVersion == 1 && SCIM_V2_DELETE.equals(operation)) {
+											multiValueObject.put(SCIM_V1_OPERATION, SCIM_V1_DELETE);
 										}
-										jArray.put(multivalueObject);
+
+										jArray.put(multiValueObject);
 
 									}
 
 								} else {
 
 									if (!BLANK.equals(finalSubAttributeNameParts[2])) {
-										multivalueObject.put(finalSubAttributeNameParts[2],
+										multiValueObject.put(finalSubAttributeNameParts[2],
 												AttributeUtil.getSingleValue(subSetAttribute));
 									} else {
 
@@ -277,27 +306,27 @@ public class GenericDataBuilder implements ObjectTranslator {
 									}
 
 									if (!DEFAULT.equals(nameFromSubSetParts[1])) {
-										multivalueObject.put(TYPE, nameFromSubSetParts[1]);
-									}
-									if (operation != null) {
-										if (DELETE.equals(operation)) {
-											multivalueObject.put(OPERATION, DELETE);
-										}
+										multiValueObject.put(TYPE, nameFromSubSetParts[1]);
 									}
 
+									if (scimVersion == 1 && SCIM_V2_DELETE.equals(operation)) {
+										multiValueObject.put(SCIM_V1_OPERATION, SCIM_V1_DELETE);
+									}
 								}
 							}
 						}
 						if (writeToArray) {
 
-							jArray.put(multivalueObject);
+							jArray.put(multiValueObject);
 						}
 					}
-					String attrame = nameFromSubSetParts[0];
-					if (attrame.contains(SEPPARATOR)) {
-						attrame = attrame.replace(SEPPARATOR, FORBIDENSEPPARATOR);
+
+					String attrName = nameFromSubSetParts[0];
+					if (attrName.contains(SEPARATOR)) {
+						attrName = attrName.replace(SEPARATOR, FORBIDDEN_SEPARATOR);
 					}
-					json.put(attrame, jArray);
+
+					json.put(attrName, jArray);
 				}
 
 			}
@@ -319,47 +348,48 @@ public class GenericDataBuilder implements ObjectTranslator {
 	 * 
 	 * @return A json representation of the provided data set.
 	 */
-	public JSONObject buildMultivalueAttribute(Set<Attribute> multiValueAttribute, JSONObject json) {
+	private JSONObject buildMultiValueAttribute(final Set<Attribute> multiValueAttribute, final JSONObject json) {
 
-		String mainAttributeName = "";
+		String mainAttributeName;
+		final List<String> checkedNames = new ArrayList<>();
 
-		List<String> checkedNames = new ArrayList<String>();
-
-		Set<Attribute> specialMlAttributes = new HashSet<Attribute>();
-		for (Attribute i : multiValueAttribute) {
-			String attributeName = i.getName();
-			String[] attributeNameParts = attributeName.split(DELIMITER); // e.g.
+		final Set<Attribute> specialMlAttributes = new HashSet<>();
+		for (final Attribute i : multiValueAttribute) {
+			final String attributeName = i.getName();
+			final String[] attributeNameParts = attributeName.split(DELIMITER); // e.g.
 			// name.givenName
 
 			if (checkedNames.contains(attributeNameParts[0])) {
+				//TODO?
 			} else {
 				JSONObject jObject = new JSONObject();
 				mainAttributeName = attributeNameParts[0];
 				checkedNames.add(mainAttributeName);
-				for (Attribute j : multiValueAttribute) {
-					String secondLoopAttributeName = j.getName();
-					String[] secondLoopAttributeNameParts = secondLoopAttributeName.split(DELIMITER); // e.g.
+
+				for (final Attribute j : multiValueAttribute) {
+					final String secondLoopAttributeName = j.getName();
+					final String[] secondLoopAttributeNameParts = secondLoopAttributeName.split(DELIMITER); // e.g.
+
 					// name.givenName
 					if (secondLoopAttributeNameParts[0].equals(mainAttributeName)
 							&& !mainAttributeName.equals(SCHEMA)) {
 						jObject.put(secondLoopAttributeNameParts[1], AttributeUtil.getSingleValue(j));
-					} else if (secondLoopAttributeNameParts[0].equals(mainAttributeName)
-							&& mainAttributeName.equals(SCHEMA)) {
+					} else if (secondLoopAttributeNameParts[0].equals(mainAttributeName)) {
 						specialMlAttributes.add(j);
 
 					}
 				}
+
 				if (specialMlAttributes.isEmpty()) {
 					json.put(attributeNameParts[0], jObject);
-				}
-				//
-				else {
-					String sMlAttributeName = "No schema type";
-					Boolean nameWasSet = false;
 
-					for (Attribute specialAttribute : specialMlAttributes) {
-						String innerName = specialAttribute.getName();
-						String[] innerKeyParts = innerName.split(DELIMITER); // e.g.
+				} else {
+					String sMlAttributeName = "No schema type";
+					boolean nameWasSet = false;
+
+					for (final Attribute specialAttribute : specialMlAttributes) {
+						final String innerName = specialAttribute.getName();
+						final String[] innerKeyParts = innerName.split(DELIMITER); // e.g.
 						// name.givenName
 						if (innerKeyParts[1].equals(TYPE) && !nameWasSet) {
 							sMlAttributeName = AttributeUtil.getAsStringValue(specialAttribute);
@@ -369,6 +399,7 @@ public class GenericDataBuilder implements ObjectTranslator {
 							jObject.put(innerKeyParts[1], AttributeUtil.getSingleValue(specialAttribute));
 						}
 					}
+
 					if (nameWasSet) {
 
 						json.put(sMlAttributeName, jObject);
@@ -402,27 +433,28 @@ public class GenericDataBuilder implements ObjectTranslator {
 	 * @return A json representation of the provided data set.
 	 */
 
-	public JSONObject buildExtensionAttribute(Set<Attribute> extensionAttribute, JSONObject json) {
+	private JSONObject buildExtensionAttribute(final Set<Attribute> extensionAttribute, final JSONObject json) {
+
 		boolean isPartOfName = false;
 		String mainAttributeName = "";
-		Map<String, Map<String, Object>> processedGoods = new HashMap<String, Map<String, Object>>();
+		final Map<String, Map<String, Object>> processedGoods = new HashMap<>();
 
-		for (Attribute i : extensionAttribute) {
+		for (final Attribute i : extensionAttribute) {
 
 			String attributeName = i.getName();
-			attributeName = attributeName.replace(SEPPARATOR, FORBIDENSEPPARATOR);
-			String[] attributeNameParts = attributeName.split(DELIMITER); // e.q.
+			attributeName = attributeName.replace(SEPARATOR, FORBIDDEN_SEPARATOR);
+			final String[] attributeNameParts = attributeName.split(DELIMITER); // e.q.
 			// urn:scim:schemas:extension:enterprise:1.0.division
 			for (int position = 1; position < attributeNameParts.length; position++) {
 
-				String namePart = attributeNameParts[position];
+				final String namePart = attributeNameParts[position];
 
-				for (int charPossition = 0; charPossition < namePart.length(); charPossition++) {
-					char c = namePart.charAt(charPossition);
+				for (int charPosition = 0; charPosition < namePart.length(); charPosition++) {
+					char c = namePart.charAt(charPosition);
 					if (Character.isDigit(c)) {
-						if (charPossition == 0 && charPossition + 1 == namePart.length()) {
+						if (charPosition == 0 && charPosition + 1 == namePart.length()) {
 							isPartOfName = true;
-						} else if (charPossition + 1 == namePart.length() && !isPartOfName) {
+						} else if (charPosition + 1 == namePart.length() && !isPartOfName) {
 
 							isPartOfName = false;
 
@@ -433,6 +465,7 @@ public class GenericDataBuilder implements ObjectTranslator {
 						isPartOfName = false;
 					}
 				}
+
 				if (!isPartOfName) {
 
 					if (mainAttributeName.isEmpty()) {
@@ -441,23 +474,24 @@ public class GenericDataBuilder implements ObjectTranslator {
 
 					if (!processedGoods.containsKey(mainAttributeName)) {
 
-						Map<String, Object> processedAttribute = new HashMap<String, Object>();
+						final Map<String, Object> processedAttribute = new HashMap<>();
 						processedAttribute.put(namePart, AttributeUtil.getSingleValue(i));
 						processedGoods.put(mainAttributeName, processedAttribute);
 						mainAttributeName = "";
 						break;
 					} else {
-						Map<String, Object> processedAttribute = processedGoods.get(mainAttributeName);
+						final Map<String, Object> processedAttribute = processedGoods.get(mainAttributeName);
 						processedAttribute.put(namePart, AttributeUtil.getSingleValue(i));
 						processedGoods.put(mainAttributeName, processedAttribute);
 						mainAttributeName = "";
 						break;
 					}
 				} else {
-					StringBuilder buildName;
+					final StringBuilder buildName;
 					if (mainAttributeName.isEmpty()) {
 						buildName = new StringBuilder(attributeNameParts[0]).append(DOT).append(namePart);
 						mainAttributeName = buildName.toString();
+
 					} else {
 						buildName = new StringBuilder(mainAttributeName).append(DOT).append(namePart);
 						mainAttributeName = buildName.toString();
@@ -468,13 +502,12 @@ public class GenericDataBuilder implements ObjectTranslator {
 
 		}
 		if (!processedGoods.isEmpty()) {
-			for (String attributeName : processedGoods.keySet()) {
+			for (final String attributeName : processedGoods.keySet()) {
 
-				JSONObject subAttributes = new JSONObject();
+				final JSONObject subAttributes = new JSONObject();
+				final Map<String, Object> sAttribute = processedGoods.get(attributeName);
 
-				Map<String, Object> sAttribute = processedGoods.get(attributeName);
-
-				for (String sAttributeName : sAttribute.keySet()) {
+				for (final String sAttributeName : sAttribute.keySet()) {
 					subAttributes.put(sAttributeName, sAttribute.get(sAttributeName));
 				}
 

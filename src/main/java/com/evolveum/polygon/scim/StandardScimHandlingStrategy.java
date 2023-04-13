@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -80,25 +81,29 @@ import org.json.JSONObject;
 public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 	private static final Log LOGGER = Log.getLog(StandardScimHandlingStrategy.class);
-	private static final String CANONICALVALUES = "canonicalValues";
-	private static final String REFERENCETYPES = "referenceTypes";
+	private static final String CANONICAL_VALUES = "canonicalValues";
+	private static final String REFERENCE_TYPES = "referenceTypes";
 	private static final String RESOURCES = "Resources";
-	private static final String STARTINDEX = "startIndex";
-	private static final String TOTALRESULTS = "totalResults";
-	private static final String ITEMSPERPAGE = "itemsPerPage";
-	private static final String FORBIDENSEPPARATOR = ":";
-	private static final String SEPPARATOR = "-";
-	private static final char QUERYCHAR = '?';
-	private static final char QUERYDELIMITER = '&';
+	private static final String USER_V2_SCHEMA_ID = "urn:ietf:params:scim:schemas:core:2.0:User";
+	private static final String GROUP_V2_SCHEMA_ID = "urn:ietf:params:scim:schemas:core:2.0:Group";
+	private static final String USER_V1_SCHEMA_ID = "urn:scim:schemas:core:1.0:User";
+	private static final String GROUP_V1_SCHEMA_ID = "urn:scim:schemas:core:1.0:User";
+	private static final String START_INDEX = "startIndex";
+	private static final String TOTAL_RESULTS = "totalResults";
+	private static final String ITEMS_PER_PAGE = "itemsPerPage";
+	private static final String FORBIDDEN_SEPARATOR = ":";
+	private static final String SEPARATOR = "-";
+	private static final char QUERY_CHAR = '?';
+	private static final char QUERY_DELIMITER = '&';
 
 	@Override
-	public Uid create(String resourceEndPoint, ObjectTranslator objectTranslator, Set<Attribute> attributes,
-			Set<Attribute> injectedAttributeSet, ScimConnectorConfiguration conf) {
+	public Uid create(final String resourceEndPoint, final ObjectTranslator objectTranslator, final Set<Attribute> attributes,
+			Set<Attribute> injectedAttributeSet, final ScimConnectorConfiguration conf) {
 
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+		final ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
-		Header authHeader = accessManager.getAuthHeader();
-		String scimBaseUri = accessManager.getBaseUri();
+		final Header authHeader = accessManager.getAuthHeader();
+		final String scimBaseUri = accessManager.getBaseUri();
 
 		if (authHeader == null || scimBaseUri.isEmpty()) {
 
@@ -107,24 +112,22 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 		injectedAttributeSet = attributeInjection(injectedAttributeSet, accessManager.getLoginJson());
 
-		JSONObject jsonObject = new JSONObject();
+		final JSONObject jsonObject = objectTranslator.translateSetToJson(attributes, injectedAttributeSet, resourceEndPoint);
 
-		jsonObject = objectTranslator.translateSetToJson(attributes, injectedAttributeSet, resourceEndPoint);
+		final HttpClient httpClient = initHttpClient(conf);
 
-		HttpClient httpClient = initHttpClient(conf);
-
-		String uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).append(SLASH).toString();
+		final String uri = scimBaseUri + SLASH + resourceEndPoint + SLASH;
 		LOGGER.info("Query url: {0}", uri);
 		try {
 
 			// LOGGER.info("Json object to be send: {0}",
 			// jsonObject.toString(1));
 
-			HttpPost httpPost = buildHttpPost(uri, authHeader, jsonObject);
-			String responseString = null;
+			final HttpPost httpPost = buildHttpPost(uri, authHeader, jsonObject);
+			String responseString;
 			try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpPost)) {
 
-				HttpEntity entity = response.getEntity();
+				final HttpEntity entity = response.getEntity();
 
 				if (entity != null) {
 					responseString = EntityUtils.toString(entity);
@@ -132,16 +135,16 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 					responseString = "";
 				}
 
-				int statusCode = response.getStatusLine().getStatusCode();
+				final int statusCode = response.getStatusLine().getStatusCode();
 				LOGGER.info("Status code: {0}", statusCode);
 
 				if (statusCode == 201) {
 					LOGGER.info("Creation of resource was successful");
 
 					if (!responseString.isEmpty()) {
-						JSONObject json = new JSONObject(responseString);
+						final JSONObject json = new JSONObject(responseString);
 
-						Uid uid = new Uid(json.getString(ID));
+						final Uid uid = new Uid(json.getString(ID));
 
 						 LOGGER.info("Json response: {0}", json.toString(1));
 						return uid;
@@ -195,7 +198,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 					e);
 
 			throw new ConnectorException(
-					"An exception has occurred while processing an json object. Occurrence in the process of creating a new resource objec",
+					"An exception has occurred while processing an json object. Occurrence in the process of creating a new resource object",
 					e);
 		} catch (UnsupportedEncodingException e) {
 			LOGGER.error("Unsupported encoding: {0}. Occurrence in the process of creating a new resource object ",
@@ -209,34 +212,33 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public void query(Filter query, StringBuilder queryUriSnippet, String resourceEndPoint,
-			ResultsHandler resultHandler, ScimConnectorConfiguration conf) {
+	public void query(final Filter query, final StringBuilder queryUriSnippet, String resourceEndPoint,
+			final ResultsHandler resultHandler, final ScimConnectorConfiguration conf) {
 
 		LOGGER.info("Processing query");
 
 		Boolean isCAVGroupQuery = false; // query is a ContainsAllValues
 											// filter query for the group
 											// endpoint?
-		Boolean valueIsUid = false;
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+		boolean valueIsUid = false;
+		final ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
-		Header authHeader = accessManager.getAuthHeader();
-		String scimBaseUri = accessManager.getBaseUri();
+		final Header authHeader = accessManager.getAuthHeader();
+		final String scimBaseUri = accessManager.getBaseUri();
 
 		if (authHeader == null || scimBaseUri.isEmpty()) {
-
 			throw new ConnectorException("The data needed for authorization of request to the provider was not found.");
 		}
 
 		String q;
 
-		String[] baseUrlParts = scimBaseUri.split("\\.");
-		String providerName = baseUrlParts[1];
+		final String[] baseUrlParts = scimBaseUri.split("\\.");
+		final String providerName = baseUrlParts[1];
 
 		if (query != null) {
 
 			if (query instanceof EqualsFilter) {
-				Attribute filterAttr = ((EqualsFilter) query).getAttribute();
+				final Attribute filterAttr = ((EqualsFilter) query).getAttribute();
 
 				if (filterAttr instanceof Uid) {
 
@@ -283,35 +285,37 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			q = queryUriSnippet.toString();
 
 		}
-		HttpClient httpClient = initHttpClient(conf);
-		String uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).append(SLASH).append(q)
-				.toString();
+
+		final HttpClient httpClient = initHttpClient(conf);
+		final String uri = scimBaseUri + SLASH + resourceEndPoint + SLASH + q;
 		LOGGER.info("Query url: {0}", uri);
 
-		HttpGet httpGet = buildHttpGet(uri, authHeader);
-		String responseString = null;
+		final HttpGet httpGet = buildHttpGet(uri, authHeader);
+		String responseString;
+
 		try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpGet)) {
 			int statusCode = response.getStatusLine().getStatusCode();
-			HttpEntity entity = response.getEntity();
+			final HttpEntity entity = response.getEntity();
 
 			if (entity != null) {
 				responseString = EntityUtils.toString(entity);
 			} else {
 				responseString = "";
 			}
+
 			LOGGER.info("Status code: {0}", statusCode);
 			if (statusCode == 200) {
 
 				if (!responseString.isEmpty()) {
 					try {
-						JSONObject jsonObject = new JSONObject(responseString);
+						final JSONObject jsonObject = new JSONObject(responseString);
 
 						 LOGGER.info("Json object returned from service provider: {0}", jsonObject.toString(1));
 						try {
 
 							if (valueIsUid) {
 
-								ConnectorObject connectorObject = buildConnectorObject(jsonObject, resourceEndPoint);
+								final ConnectorObject connectorObject = buildConnectorObject(jsonObject, resourceEndPoint);
 								resultHandler.handle(connectorObject);
 
 							} else {
@@ -322,42 +326,41 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 											conf);
 
 								} else if (jsonObject.has(RESOURCES)) {
-									int amountOfResources = jsonObject.getJSONArray(RESOURCES).length();
+									final int amountOfResources = jsonObject.getJSONArray(RESOURCES).length();
 									int totalResults = 0;
 									int startIndex = 0;
 									int itemsPerPage = 0;
 
-									if (jsonObject.has(STARTINDEX) && jsonObject.has(TOTALRESULTS)
-											&& jsonObject.has(ITEMSPERPAGE)) {
-										totalResults = (int) jsonObject.get(TOTALRESULTS);
-										startIndex = (int) jsonObject.get(STARTINDEX);
-										itemsPerPage = (int) jsonObject.get(ITEMSPERPAGE);
+									if (jsonObject.has(START_INDEX) && jsonObject.has(TOTAL_RESULTS)
+											&& jsonObject.has(ITEMS_PER_PAGE)) {
+										totalResults = (int) jsonObject.get(TOTAL_RESULTS);
+										startIndex = (int) jsonObject.get(START_INDEX);
+										itemsPerPage = (int) jsonObject.get(ITEMS_PER_PAGE);
 									}
 
 									for (int i = 0; i < amountOfResources; i++) {
-										JSONObject minResourceJson = new JSONObject();
-										minResourceJson = jsonObject.getJSONArray(RESOURCES).getJSONObject(i);
+										final JSONObject minResourceJson = jsonObject.getJSONArray(RESOURCES).getJSONObject(i);
 										if (minResourceJson.has(ID) && minResourceJson.getString(ID) != null) {
 
 											if (minResourceJson.has(USERNAME)) {
 
-												ConnectorObject connectorObject = buildConnectorObject(minResourceJson,
+												final ConnectorObject connectorObject = buildConnectorObject(minResourceJson,
 														resourceEndPoint);
 
 												resultHandler.handle(connectorObject);
 											} else if (!USERS.equals(resourceEndPoint)) {
 
 												if (minResourceJson.has(DISPLAYNAME)) {
-													ConnectorObject connectorObject = buildConnectorObject(
+													final ConnectorObject connectorObject = buildConnectorObject(
 															minResourceJson, resourceEndPoint);
 													resultHandler.handle(connectorObject);
 												}
 											} else if (minResourceJson.has(META)) {
 
-												String resourceUri = minResourceJson.getJSONObject(META)
-														.getString("location").toString();
+												final String resourceUri = minResourceJson.getJSONObject(META)
+														.getString("location");
 
-												HttpGet httpGetR = buildHttpGet(resourceUri, authHeader);
+												final HttpGet httpGetR = buildHttpGet(resourceUri, authHeader);
 												try (CloseableHttpResponse resourceResponse = (CloseableHttpResponse) httpClient
 														.execute(httpGetR)) {
 
@@ -365,19 +368,19 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 													responseString = EntityUtils.toString(resourceResponse.getEntity());
 													if (statusCode == 200) {
 
-														JSONObject fullResourcejson = new JSONObject(responseString);
+														final JSONObject fullResourceJSON = new JSONObject(responseString);
 
 														// LOGGER.info(
 														// "The {0}. resource
-														// jsonobject which was
+														// jsonObject which was
 														// returned by the
 														// service
 														// provider: {1}",
 														// i + 1,
-														// fullResourcejson);
+														// fullResourceJSON);
 
-														ConnectorObject connectorObject = buildConnectorObject(
-																fullResourcejson, resourceEndPoint);
+														final ConnectorObject connectorObject = buildConnectorObject(
+																fullResourceJSON, resourceEndPoint);
 
 														resultHandler.handle(connectorObject);
 
@@ -398,7 +401,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 										}
 									}
 									if (resultHandler instanceof SearchResultsHandler) {
-										Boolean allResultsReturned = false;
+										boolean allResultsReturned = false;
 										int remainingResult = totalResults - (startIndex - 1) - itemsPerPage;
 
 										if (remainingResult <= 0) {
@@ -409,7 +412,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 										// LOGGER.info("The number of remaining
 										// results: {0}", remainingResult);
-										SearchResult searchResult = new SearchResult(DEFAULT, remainingResult,
+										final SearchResult searchResult = new SearchResult(DEFAULT, remainingResult,
 												allResultsReturned);
 										((SearchResultsHandler) resultHandler).handleResult(searchResult);
 									}
@@ -438,10 +441,10 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 							q = "the full resource representation";
 						}
 						LOGGER.error(
-								"An exception has occurred while setting the variable \"jsonObject\". Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+								"An exception has occurred while setting the variable \"jsonObject\". Occurrence while processing the http response to the query request for: {1}, exception message: {0}",
 								jsonException.getLocalizedMessage(), q);
 						LOGGER.info(
-								"An exception has occurred while setting the variable \"jsonObject\". Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+								"An exception has occurred while setting the variable \"jsonObject\". Occurrence while processing the http response to the query request for: {1}, exception message: {0}",
 								jsonException, q);
 						throw new ConnectorException(
 								"An exception has occurred while setting the variable \"jsonObject\".", jsonException);
@@ -449,7 +452,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 				} else {
 
-					LOGGER.warn("Service provider response is empty, responce returned on query: {0}", q);
+					LOGGER.warn("Service provider response is empty, response returned on query: {0}", q);
 				}
 			} else if (statusCode == 401) {
 
@@ -458,17 +461,17 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 			} else if (valueIsUid) {
 
-				LOGGER.info("Abouth to throw an exception, the resource: {0} was not found.", q);
+				LOGGER.info("About to throw an exception, the resource: {0} was not found.", q);
 
 				ErrorHandler.onNoSuccess(responseString, statusCode, uri);
 
-				StringBuilder errorBuilder = new StringBuilder("The resource with the uid: ").append(q)
-						.append(" was not found.");
+				final String errorBuilder = "The resource with the uid: " + q +
+						" was not found.";
 
-				throw new UnknownUidException(errorBuilder.toString());
+				throw new UnknownUidException(errorBuilder);
 			} else if (statusCode == 404) {
 
-				String error = ErrorHandler.onNoSuccess(responseString, statusCode, uri);
+				final String error = ErrorHandler.onNoSuccess(responseString, statusCode, uri);
 				LOGGER.warn("Resource not found: {0}", error);
 			} else {
 				ErrorHandler.onNoSuccess(responseString, statusCode, uri);
@@ -480,7 +483,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				q = "the full resource representation";
 			}
 
-			StringBuilder errorBuilder = new StringBuilder(
+			final StringBuilder errorBuilder = new StringBuilder(
 					"An error occurred while processing the query http response for ");
 			errorBuilder.append(q);
 			if ((e instanceof SocketTimeoutException || e instanceof NoRouteToHostException)) {
@@ -491,10 +494,10 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			} else {
 
 				LOGGER.error(
-						"An error occurred while processing the query http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+						"An error occurred while processing the query http response. Occurrence while processing the http response to the query request for: {1}, exception message: {0}",
 						e.getLocalizedMessage(), q);
 				LOGGER.info(
-						"An error occurred while processing the query http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+						"An error occurred while processing the query http response. Occurrence while processing the http response to the query request for: {1}, exception message: {0}",
 						e, q);
 				throw new ConnectorIOException(errorBuilder.toString(), e);
 			}
@@ -502,51 +505,51 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public Uid update(Uid uid, String resourceEndPoint, ObjectTranslator objectTranslator, Set<Attribute> attributes,
-			ScimConnectorConfiguration conf) {
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+	public Uid update(final Uid uid, final String resourceEndPoint, final ObjectTranslator objectTranslator, final Set<Attribute> attributes,
+			final ScimConnectorConfiguration conf) {
 
-		Header authHeader = accessManager.getAuthHeader();
-		String scimBaseUri = accessManager.getBaseUri();
+		final ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+
+		final Header authHeader = accessManager.getAuthHeader();
+		final String scimBaseUri = accessManager.getBaseUri();
 
 		if (authHeader == null || scimBaseUri.isEmpty()) {
-
 			throw new ConnectorException("The data needed for authorization of request to the provider was not found.");
 		}
 
-		HttpClient httpClient = initHttpClient(conf);
+		final HttpClient httpClient = initHttpClient(conf);
 
-		String uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).append(SLASH)
-				.append(uid.getUidValue()).toString();
+		final String uri = scimBaseUri + SLASH + resourceEndPoint + SLASH +
+				uid.getUidValue();
 		LOGGER.info("The uri for the update request: {0}", uri);
 
-		String responseString = null;
+		String responseString;
 		try {
 			LOGGER.info("Query url: {0}", uri);
-			JSONObject jsonObject = objectTranslator.translateSetToJson(attributes, null, resourceEndPoint);
+
+			final JSONObject jsonObject = objectTranslator.translateSetToJson(attributes, null, resourceEndPoint);
 			LOGGER.info("The update json object: {0}", jsonObject);
-			
-			HttpPatch httpPatch = buildHttpPatch(uri, authHeader, jsonObject);
+
+			final HttpPatch httpPatch = buildHttpPatch(uri, authHeader, jsonObject);
 
 			try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpPatch)) {
 
 				int statusCode = response.getStatusLine().getStatusCode();
 
-				HttpEntity entity = response.getEntity();
+				final HttpEntity entity = response.getEntity();
 
 				if (entity != null) {
 					responseString = EntityUtils.toString(entity);
 				} else {
 					responseString = "";
 				}
-				if (statusCode == 200 || statusCode == 201) {
-					LOGGER.info("Update of resource was succesfull");
+				if (statusCode == 200  || statusCode == 201) {
+					LOGGER.info("Update of resource was successful");
 
 					if (!responseString.isEmpty()) {
-						JSONObject json = new JSONObject(responseString);
+						final JSONObject json = new JSONObject(responseString);
 						 LOGGER.ok("Json response: {0}", json.toString());
-						Uid id = new Uid(json.getString(ID));
-						return id;
+						return new Uid(json.getString(ID));
 
 					} else {
 						LOGGER.warn("Service provider response is empty, no response after the update procedure");
@@ -560,14 +563,14 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 					ErrorHandler.onNoSuccess(responseString, statusCode, uri);
 
-					StringBuilder errorBuilder = new StringBuilder("The resource with the uid: ").append(uid)
-							.append(" was not found.");
+					final String errorBuilder = "The resource with the uid: " + uid +
+							" was not found.";
 
-					throw new UnknownUidException(errorBuilder.toString());
+					throw new UnknownUidException(errorBuilder);
 
 				} else if (statusCode == 500 && GROUPS.equals(resourceEndPoint)) {
 
-					Uid id = groupUpdateProcedure(statusCode, jsonObject, uri, authHeader, conf);
+					final Uid id = groupUpdateProcedure(statusCode, jsonObject, uri, authHeader, conf);
 
 					if (id != null) {
 
@@ -579,6 +582,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 					handleInvalidStatus("while updating resource. ", responseString, "updating object", statusCode);
 				}
 			}
+
 		} catch (UnsupportedEncodingException e) {
 
 			LOGGER.error("Unsupported encoding: {0}. Occurrence in the process of updating a resource object ",
@@ -600,6 +604,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			throw new ConnectorException(
 					"An exception has occurred while processing a json object,Occurrence in the process of updating a resource object",
 					e);
+
 		} catch (ClientProtocolException e) {
 			LOGGER.error(
 					"An protocol exception has occurred while in the process of updating a resource object. Possible mismatch in the interpretation of the HTTP specification: {0}",
@@ -610,12 +615,13 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			throw new ConnectionFailedException(
 					"An protocol exception has occurred while in the process of updating a resource object, Possible mismatch in the interpretation of the HTTP specification.",
 					e);
+
 		} catch (IOException e) {
 
-			StringBuilder errorBuilder = new StringBuilder(
+			final StringBuilder errorBuilder = new StringBuilder(
 					"An error has occurred while processing the http response. Occurrence in the process of updating a resource object wit the Uid: ");
 
-			errorBuilder.append(uid.toString());
+			errorBuilder.append(uid);
 
 			if ((e instanceof SocketTimeoutException || e instanceof NoRouteToHostException)) {
 				errorBuilder.insert(0, "The connection timed out. ");
@@ -633,40 +639,39 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				throw new ConnectorIOException(errorBuilder.toString(), e);
 			}
 		}
-		return null;
 
+		return null;
 	}
 
 	@Override
-	public void delete(Uid uid, String resourceEndPoint, ScimConnectorConfiguration conf) {
+	public void delete(final Uid uid, final String resourceEndPoint, final ScimConnectorConfiguration conf) {
 
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+		final ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
-		Header authHeader = accessManager.getAuthHeader();
-		String scimBaseUri = accessManager.getBaseUri();
+		final Header authHeader = accessManager.getAuthHeader();
+		final String scimBaseUri = accessManager.getBaseUri();
 
 		if (authHeader == null || scimBaseUri.isEmpty()) {
-
 			throw new ConnectorException("The data needed for authorization of request to the provider was not found.");
 		}
 
-		HttpClient httpClient = initHttpClient(conf);
+		final HttpClient httpClient = initHttpClient(conf);
 
-		String uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).append(SLASH)
-				.append(uid.getUidValue()).toString();
+		final String uri = scimBaseUri + SLASH + resourceEndPoint + SLASH +
+				uid.getUidValue();
 
 		LOGGER.info("The uri for the delete request: {0}", uri);
-		HttpDelete httpDelete = buildHttpDelete(uri, authHeader);
+		final HttpDelete httpDelete = buildHttpDelete(uri, authHeader);
 
 		try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpDelete)) {
-			int statusCode = response.getStatusLine().getStatusCode();
+			final int statusCode = response.getStatusLine().getStatusCode();
 
 			if (statusCode == 204 || statusCode == 200) {
-				LOGGER.info("Deletion of resource was succesfull");
+				LOGGER.info("Deletion of resource was successful");
 			} else {
 
 				String responseString;
-				HttpEntity entity = response.getEntity();
+				final HttpEntity entity = response.getEntity();
 
 				if (entity != null) {
 					responseString = EntityUtils.toString(entity);
@@ -687,12 +692,13 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			throw new ConnectionFailedException(
 					"An protocol exception has occurred while in the process of deleting a resource object. Possible mismatch in the interpretation of the HTTP specification.",
 					e);
+
 		} catch (IOException e) {
 
-			StringBuilder errorBuilder = new StringBuilder(
+			final StringBuilder errorBuilder = new StringBuilder(
 					"An error has occurred while processing the http response. Occurrence in the process of deleting a resource object with the Uid:  ");
 
-			errorBuilder.append(uid.toString());
+			errorBuilder.append(uid);
 
 			if ((e instanceof SocketTimeoutException || e instanceof NoRouteToHostException)) {
 
@@ -727,11 +733,11 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 		final HttpClient schemaHttpClient = initHttpClient(conf);
 		final List<String> schemaUrls = List.of(
-				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).toString(),
-				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).append(usersEndpoint).toString(),
-				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).append(groupsEndpoint).toString());
+				scimBaseUri + SLASH + schemaEndPoint,
+				scimBaseUri + SLASH + schemaEndPoint + usersEndpoint,
+				scimBaseUri + SLASH + schemaEndPoint + groupsEndpoint);
 
-		List<String> excludedAttrs = new ArrayList<String>();
+		List<String> excludedAttrs = new ArrayList<>();
 		String responseString = "";
 		int statusCode = 0;
 		JSONObject responseObject = new JSONObject();
@@ -815,232 +821,244 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public JSONObject injectMissingSchemaAttributes(String resourceName, JSONObject jsonObject) {
+	public JSONObject injectMissingSchemaAttributes(final String resourceName, final JSONObject jsonObject) {
 		return jsonObject;
 	}
 
 	@Override
-	public ParserSchemaScim processSchemaResponse(JSONObject responseObject) {
+	public ParserSchemaScim processSchemaResponse(final JSONObject responseObject) {
 
 		// LOGGER.info("The resources json representation: {0}",
 		// responseObject.toString(1));
-		ParserSchemaScim scimParser = new ParserSchemaScim();
+		final ParserSchemaScim scimParser = new ParserSchemaScim();
 		for (int i = 0; i < responseObject.getJSONArray(RESOURCES).length(); i++) {
-			JSONObject minResourceJson = new JSONObject();
-			minResourceJson = responseObject.getJSONArray(RESOURCES).getJSONObject(i);
+			final JSONObject minResourceJson = responseObject.getJSONArray(RESOURCES).getJSONObject(i);
 
-			if (minResourceJson.has("endpoint")) {
+			if (minResourceJson != null && (minResourceJson.has("endpoint") || minResourceJson.has("id"))) {
+
+				if (!minResourceJson.has("endpoint")) {
+					final Object id = minResourceJson.get("id");
+					if (id == null || (!id.toString().contains(USER_V2_SCHEMA_ID)
+							&& !id.toString().contains(GROUP_V2_SCHEMA_ID)
+							&& !id.toString().contains(USER_V1_SCHEMA_ID)
+							&& !id.toString().contains(GROUP_V1_SCHEMA_ID))) {
+
+						LOGGER.warn("Error processing returned SCIM schema object. No valid User or Group SCIM v1 or v2 definition found in {0}!", minResourceJson);
+					}
+				}
+
 				scimParser.parseSchema(minResourceJson, this);
 
 			} else {
-				LOGGER.error("No endpoint identifier present in fetched object: {0}", minResourceJson);
-
-				throw new ConnectorException(
-						"No endpoint identifier present in fetched object while processing query result");
+				LOGGER.error("No endpoint or SCIM id identifier present in fetched schema object: {0}", minResourceJson);
+				throw new ConnectorException("No endpoint or identifier present in fetched schema object while processing schema query result");
 			}
 		}
+
 		return scimParser;
 
 	}
 
 	@Override
-	public Map<String, Map<String, Object>> parseSchemaAttribute(JSONObject attribute,
-			Map<String, Map<String, Object>> attributeMap, ParserSchemaScim parser) {
+	public Map<String, Map<String, Object>> parseSchemaAttribute(final JSONObject attribute,
+			 Map<String, Map<String, Object>> attributeMap, final ParserSchemaScim parser) {
 
-		String attributeName = null;
-		Boolean isComplex = false;
-		Boolean isMultiValued = false;
-		Boolean hasSubAttributes = false;
-		String nameFromDictionary = "";
-		Map<String, Object> attributeObjects = new HashMap<String, Object>();
-		Map<String, Object> subAttributeMap = new HashMap<String, Object>();
+		try {
+			String attributeName = null;
+			Boolean isComplex = false;
+			Boolean isMultiValued = false;
+			boolean hasSubAttributes = false;
+			String nameFromDictionary = "";
+			final Map<String, Object> attributeObjects = new HashMap<>();
+			Map<String, Object> subAttributeMap = new HashMap<>();
 
-		List<String> dictionary = populateDictionary(WorkaroundFlags.PARSERFLAG);
-		List<String> excludedAttributes = defineExcludedAttributes();
-		for (int position = 0; position < dictionary.size(); position++) {
-			nameFromDictionary = dictionary.get(position);
+			final List<String> dictionary = populateDictionary(WorkaroundFlags.PARSERFLAG);
+			final List<String> excludedAttributes = defineExcludedAttributes();
 
-			if (attribute.has(nameFromDictionary)) {
+			for (final String s : dictionary) {
+				nameFromDictionary = s;
 
-				hasSubAttributes = true;
-				break;
+				if (attribute.has(nameFromDictionary)) {
+
+					hasSubAttributes = true;
+					break;
+				}
+
 			}
+			if (hasSubAttributes) {
 
-		}
-		if (hasSubAttributes) {
-
-			boolean hasTypeValues = false;
-			JSONArray subAttributes = new JSONArray();
-			subAttributes = (JSONArray) attribute.get(nameFromDictionary);
-			if (attributeName == null) {
-				for (String subAttributeNameKeys : attribute.keySet()) {
+				boolean hasTypeValues = false;
+				final JSONArray subAttributes = (JSONArray) attribute.get(nameFromDictionary);
+				for (final String subAttributeNameKeys : attribute.keySet()) {
 					if (NAME.equals(subAttributeNameKeys)) {
 						attributeName = attribute.get(subAttributeNameKeys).toString();
 
-						if (attributeName.contains(FORBIDENSEPPARATOR)) {
-							attributeName = attributeName.replace(FORBIDENSEPPARATOR, SEPPARATOR);
+						if (attributeName.contains(FORBIDDEN_SEPARATOR)) {
+							attributeName = attributeName.replace(FORBIDDEN_SEPARATOR, SEPARATOR);
 						}
 
 						break;
 					}
 				}
-			}
 
-			if (!excludedAttributes.contains(attributeName)) {
-
-				for (String nameKey : attribute.keySet()) {
-					if (MULTIVALUED.equals(nameKey)) {
-						isMultiValued = (Boolean) attribute.get(nameKey);
-						break;
-					}
-				}
-
-				for (int i = 0; i < subAttributes.length(); i++) {
-					JSONObject subAttribute = new JSONObject();
-					subAttribute = subAttributes.getJSONObject(i);
-					subAttributeMap = parser.parseSubAttribute(subAttribute, subAttributeMap);
-				}
-				for (String typeKey : subAttributeMap.keySet()) {
-					if (TYPE.equals(typeKey)) {
-						hasTypeValues = true;
-						break;
-					}
-				}
-
-				if (hasTypeValues) {
-					Map<String, Object> typeObject = new HashMap<String, Object>();
-					typeObject = (HashMap<String, Object>) subAttributeMap.get(TYPE);
-					if (typeObject.containsKey(CANONICALVALUES) || typeObject.containsKey(REFERENCETYPES)) {
-						JSONArray referenceValues = new JSONArray();
-						if (typeObject.containsKey(CANONICALVALUES)) {
-							referenceValues = (JSONArray) typeObject.get(CANONICALVALUES);
-						} else {
-							referenceValues = (JSONArray) typeObject.get(REFERENCETYPES);
-						}
-
-						for (int position = 0; position < referenceValues.length(); position++) {
-
-							Map<String, Object> processedParameters = translateReferenceValues(attributeMap,
-									referenceValues, subAttributeMap, position, attributeName);
-
-							for (String parameterName : processedParameters.keySet()) {
-								if (ISCOMPLEX.equals(parameterName)) {
-
-									isComplex = (Boolean) processedParameters.get(parameterName);
-
-								} else {
-									attributeMap = (Map<String, Map<String, Object>>) processedParameters
-											.get(parameterName);
-								}
-
-							}
-
-						}
-					} else {
-						// default set of canonical values.
-
-						List<String> defaultReferenceTypeValues = new ArrayList<String>();
-						defaultReferenceTypeValues.add("User");
-						defaultReferenceTypeValues.add("Group");
-
-						defaultReferenceTypeValues.add("external");
-						defaultReferenceTypeValues.add(URI);
-
-						for (String subAttributeKeyNames : subAttributeMap.keySet()) {
-							if (!TYPE.equals(subAttributeKeyNames)) {
-								for (String defaultTypeReferenceValues : defaultReferenceTypeValues) {
-									StringBuilder complexAttrName = new StringBuilder(attributeName);
-									complexAttrName.append(DOT).append(defaultTypeReferenceValues);
-									attributeMap.put(
-											complexAttrName.append(DOT).append(subAttributeKeyNames).toString(),
-											(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
-									isComplex = true;
-								}
-							}
-						}
-					}
-				} else {
-
-					if (!isMultiValued) {
-						for (String subAttributeKeyNames : subAttributeMap.keySet()) {
-							StringBuilder complexAttrName = new StringBuilder(attributeName);
-							attributeMap.put(complexAttrName.append(DOT).append(subAttributeKeyNames).toString(),
-									(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
-							isComplex = true;
-						}
-					} else {
-						for (String subAttributeKeyNames : subAttributeMap.keySet()) {
-							StringBuilder complexAttrName = new StringBuilder(attributeName);
-
-							Map<String, Object> subattributeKeyMap = (HashMap<String, Object>) subAttributeMap
-									.get(subAttributeKeyNames);
-
-							for (String attributeProperty : subattributeKeyMap.keySet()) {
-
-								if (MULTIVALUED.equals(attributeProperty)) {
-									subattributeKeyMap.put(MULTIVALUED, true);
-								}
-							}
-							attributeMap.put(complexAttrName.append(DOT).append(DEFAULT).append(DOT)
-									.append(subAttributeKeyNames).toString(), subattributeKeyMap);
-							isComplex = true;
-						}
-					}
-				}
-			}
-		} else {
-
-			for (String attributeNameKeys : attribute.keySet()) {
 				if (!excludedAttributes.contains(attributeName)) {
-					if (NAME.equals(attributeNameKeys)) {
-						attributeName = attribute.get(attributeNameKeys).toString();
-						if (attributeName.contains(FORBIDENSEPPARATOR)) {
-							attributeName = attributeName.replace(FORBIDENSEPPARATOR, SEPPARATOR);
+
+					for (final String nameKey : attribute.keySet()) {
+						if (MULTIVALUED.equals(nameKey)) {
+							isMultiValued = (Boolean) attribute.get(nameKey);
+							break;
+						}
+					}
+
+					for (int i = 0; i < subAttributes.length(); i++) {
+						final JSONObject subAttribute = subAttributes.getJSONObject(i);
+						subAttributeMap = parser.parseSubAttribute(subAttribute, subAttributeMap);
+					}
+
+					for (final String typeKey : subAttributeMap.keySet()) {
+						if (TYPE.equals(typeKey)) {
+							hasTypeValues = true;
+							break;
+						}
+					}
+
+					if (hasTypeValues) {
+						final Map<String, Object> typeObject = (HashMap<String, Object>) subAttributeMap.get(TYPE);
+
+						if (typeObject.containsKey(CANONICAL_VALUES) || typeObject.containsKey(REFERENCE_TYPES)) {
+							final JSONArray referenceValues;
+
+							if (typeObject.containsKey(CANONICAL_VALUES)) {
+								referenceValues = (JSONArray) typeObject.get(CANONICAL_VALUES);
+							} else {
+								referenceValues = (JSONArray) typeObject.get(REFERENCE_TYPES);
+							}
+
+							for (int position = 0; position < referenceValues.length(); position++) {
+								final Map<String, Object> processedParameters = translateReferenceValues(attributeMap,
+										referenceValues, subAttributeMap, position, attributeName);
+
+								for (String parameterName : processedParameters.keySet()) {
+									if (ISCOMPLEX.equals(parameterName)) {
+										isComplex = (Boolean) processedParameters.get(parameterName);
+
+									} else {
+										attributeMap = (Map<String, Map<String, Object>>) processedParameters.get(parameterName);
+									}
+								}
+							}
+						} else {
+							// default set of canonical values.
+
+							final List<String> defaultReferenceTypeValues = new ArrayList<>();
+							defaultReferenceTypeValues.add("User");
+							defaultReferenceTypeValues.add("Group");
+
+							defaultReferenceTypeValues.add("external");
+							defaultReferenceTypeValues.add(URI);
+
+							for (final String subAttributeKeyNames : subAttributeMap.keySet()) {
+								if (!TYPE.equals(subAttributeKeyNames)) {
+									for (final String defaultTypeReferenceValues : defaultReferenceTypeValues) {
+										final StringBuilder complexAttrName = ((StringUtil.isNotBlank(attributeName)) ? new StringBuilder(attributeName) : new StringBuilder());
+										complexAttrName.append(DOT).append(defaultTypeReferenceValues);
+										attributeMap.put(
+												complexAttrName.append(DOT).append(subAttributeKeyNames).toString(),
+												(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
+										isComplex = true;
+									}
+								}
+							}
 						}
 					} else {
-						attributeObjects.put(attributeNameKeys, attribute.get(attributeNameKeys));
-					}
-				} else {
-					if (!attributeObjects.isEmpty()) {
 
-						attributeObjects.clear();
+						if (!isMultiValued) {
+							for (final String subAttributeKeyNames : subAttributeMap.keySet()) {
+								final StringBuilder complexAttrName = ((StringUtil.isNotBlank(attributeName)) ? new StringBuilder(attributeName) : new StringBuilder());
+								attributeMap.put(complexAttrName.append(DOT).append(subAttributeKeyNames).toString(),
+										(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
+								isComplex = true;
+							}
+						} else {
+							for (final String subAttributeKeyNames : subAttributeMap.keySet()) {
+								final StringBuilder complexAttrName = ((StringUtil.isNotBlank(attributeName)) ? new StringBuilder(attributeName) : new StringBuilder());
+
+								final Map<String, Object> subattributeKeyMap = (HashMap<String, Object>) subAttributeMap
+										.get(subAttributeKeyNames);
+
+								for (final String attributeProperty : subattributeKeyMap.keySet()) {
+
+									if (MULTIVALUED.equals(attributeProperty)) {
+										subattributeKeyMap.put(MULTIVALUED, true);
+									}
+								}
+								attributeMap.put(complexAttrName.append(DOT).append(DEFAULT).append(DOT)
+										.append(subAttributeKeyNames).toString(), subattributeKeyMap);
+								isComplex = true;
+							}
+						}
+					}
+				}
+			} else {
+
+				for (final String attributeNameKeys : attribute.keySet()) {
+					if (!excludedAttributes.contains(attributeName)) {
+						if (NAME.equals(attributeNameKeys)) {
+							attributeName = attribute.get(attributeNameKeys).toString();
+							if (attributeName.contains(FORBIDDEN_SEPARATOR)) {
+								attributeName = attributeName.replace(FORBIDDEN_SEPARATOR, SEPARATOR);
+							}
+						} else {
+							attributeObjects.put(attributeNameKeys, attribute.get(attributeNameKeys));
+						}
+					} else {
+						if (!attributeObjects.isEmpty()) {
+
+							attributeObjects.clear();
+						}
 					}
 				}
 			}
-		}
-		if (!isComplex) {
-			if (!attributeObjects.isEmpty()) {
-				attributeMap.put(attributeName, attributeObjects);
+			if (!isComplex) {
+				if (!attributeObjects.isEmpty()) {
+					attributeMap.put(attributeName, attributeObjects);
+				}
 			}
+
+		} catch (ClassCastException|JSONException e) {
+			LOGGER.ok("Error parsing schema attribute {0} with {1}!", attribute.toString(), e);
+			throw e;
+			//throw new ConnectorException("Error parsing schema attribute {0}!", e);
 		}
+
 		return attributeMap;
 	}
 
 	@Override
 	public List<Map<String, Map<String, Object>>> getAttributeMapList(
-			List<Map<String, Map<String, Object>>> attributeMapList) {
+			final List<Map<String, Map<String, Object>>> attributeMapList) {
 		return attributeMapList;
 	}
 
 	@Override
-	public Map<String, Object> translateReferenceValues(Map<String, Map<String, Object>> attributeMap,
-			JSONArray referenceValues, Map<String, Object> subAttributeMap, int position, String attributeName) {
+	public Map<String, Object> translateReferenceValues(final Map<String, Map<String, Object>> attributeMap,
+			final JSONArray referenceValues, final Map<String, Object> subAttributeMap, final int position, final String attributeName) {
 
 		Boolean isComplex = null;
-		Map<String, Object> processedParameters = new HashMap<String, Object>();
+		final Map<String, Object> processedParameters = new HashMap<>();
 
-		String sringReferenceValue;
+		String stringReferenceValue;
 		try {
-			sringReferenceValue = (String) referenceValues.get(position);
+			stringReferenceValue = (String) referenceValues.get(position);
 		} catch (ClassCastException ce) {
-			sringReferenceValue = ((JSONObject) referenceValues.get(position)).getString("value");
+			stringReferenceValue = ((JSONObject) referenceValues.get(position)).getString("value");
 		}
 
-		for (String subAttributeKeyNames : subAttributeMap.keySet()) {
+		for (final String subAttributeKeyNames : subAttributeMap.keySet()) {
 			if (!TYPE.equals(subAttributeKeyNames)) {
 
-				StringBuilder complexAttrName = new StringBuilder(attributeName);
-				attributeMap.put(complexAttrName.append(DOT).append(sringReferenceValue).append(DOT)
+				final StringBuilder complexAttrName = new StringBuilder(attributeName);
+				attributeMap.put(complexAttrName.append(DOT).append(stringReferenceValue).append(DOT)
 						.append(subAttributeKeyNames).toString(),
 						(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
 				isComplex = true;
@@ -1058,87 +1076,89 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	@Override
 	public List<String> defineExcludedAttributes() {
 
-		List<String> excludedList = new ArrayList<String>();
-
-		return excludedList;
+		//TODO?
+		return new ArrayList<>();
 	}
 
 	@Override
-	public Set<Attribute> addAttributesToInject(Set<Attribute> injectetAttributeSet) {
+	public Set<Attribute> addAttributesToInject(final Set<Attribute> injectetAttributeSet) {
 		return injectetAttributeSet;
 	}
 
 	@Override
-	public Uid groupUpdateProcedure(Integer statusCode, JSONObject jsonObject, String uri, Header authHeader,
-			ScimConnectorConfiguration conf) {
+	public Uid groupUpdateProcedure(final Integer statusCode, final JSONObject jsonObject, final String uri, final Header authHeader,
+			final ScimConnectorConfiguration conf) {
 		return null;
 	}
 
 	@Override
-	public ConnectorObject buildConnectorObject(JSONObject resourceJsonObject, String resourceEndPoint)
+	public ConnectorObject buildConnectorObject(final JSONObject resourceJsonObject, final String resourceEndPoint)
 			throws ConnectorException {
 
-		List<String> excludedAttributes = new ArrayList<String>();
-
+		List<String> excludedAttributes = new ArrayList<>();
 		LOGGER.info("Building the connector object from provided json");
 
 		if (resourceJsonObject == null) {
 			LOGGER.error(
-					"Empty json object was passed from data provider. Error ocourance while building connector object");
+					"Empty json object was passed from data provider. Error occurrence while building connector object");
 			throw new ConnectorException(
-					"Empty json object was passed from data provider. Error ocourance while building connector object");
+					"Empty json object was passed from data provider. Error occurrence while building connector object");
 		}
 
-		ConnectorObjectBuilder cob = new ConnectorObjectBuilder();
+		final ConnectorObjectBuilder cob = new ConnectorObjectBuilder();
 		cob.setUid(resourceJsonObject.getString(ID));
 		excludedAttributes.add(ID);
+
 		if (USERS.equals(resourceEndPoint)) {
 			cob.setName(resourceJsonObject.getString(USERNAME));
 			excludedAttributes.add(USERNAME);
+
 		} else if (GROUPS.equals(resourceEndPoint)) {
 
 			cob.setName(resourceJsonObject.getString(DISPLAYNAME));
 			excludedAttributes.add(DISPLAYNAME);
 			cob.setObjectClass(ObjectClass.GROUP);
+
 		} else {
 			cob.setName(resourceJsonObject.getString(DISPLAYNAME));
 			excludedAttributes.add(DISPLAYNAME);
-			ObjectClass objectClass = new ObjectClass(resourceEndPoint);
+			final ObjectClass objectClass = new ObjectClass(resourceEndPoint);
 			cob.setObjectClass(objectClass);
 
 		}
+
 		for (String key : resourceJsonObject.keySet()) {
-			Object attribute = resourceJsonObject.get(key);
+			final Object attribute = resourceJsonObject.get(key);
 
 			excludedAttributes = excludeFromAssembly(excludedAttributes);
 
 			if (excludedAttributes.contains(key)) {
-				
 				//LOGGER.warn("The attribute \"{0}\" was omitted from the connId object build.", key);
-			
-			} else
+				//TODO?
+			}
 
 			if (attribute instanceof JSONArray) {
 
-				JSONArray attributeArray = (JSONArray) attribute;
+				final JSONArray attributeArray = (JSONArray) attribute;
 
-				Map<String, Collection<Object>> multivaluedAttributeMap = new HashMap<String, Collection<Object>>();
-				Collection<Object> attributeValues = new ArrayList<Object>();
+				final Map<String, Collection<Object>> multivaluedAttributeMap = new HashMap<>();
+				Collection<Object> attributeValues = new ArrayList<>();
 
-				for (Object singleAttribute : attributeArray) {
-					StringBuilder objectNameBilder = new StringBuilder(key);
+				for (final Object singleAttribute : attributeArray) {
+					StringBuilder objectNameBuilder = new StringBuilder(key);
 					String objectKeyName = "";
+
 					if (singleAttribute instanceof JSONObject) {
-						for (String singleSubAttribute : ((JSONObject) singleAttribute).keySet()) {
+						for (final String singleSubAttribute : ((JSONObject) singleAttribute).keySet()) {
 							if (TYPE.equals(singleSubAttribute)) {
-								objectKeyName = objectNameBilder.append(DOT)
+								objectKeyName = objectNameBuilder.append(DOT)
 										.append(((JSONObject) singleAttribute).get(singleSubAttribute)).toString();
-								objectNameBilder.delete(0, objectNameBilder.length());
+								objectNameBuilder.delete(0, objectNameBuilder.length());
 								break;
 							}
 						}
 
-						for (String singleSubAttribute : ((JSONObject) singleAttribute).keySet()) {
+						for (final String singleSubAttribute : ((JSONObject) singleAttribute).keySet()) {
 							Object sAttributeValue;
 							if (((JSONObject) singleAttribute).isNull(singleSubAttribute)) {
 								sAttributeValue = null;
@@ -1148,37 +1168,37 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 							}
 
 							if (TYPE.equals(singleSubAttribute)) {
+								//TODO?
 							} else {
 
 								if (!"".equals(objectKeyName)) {
-									objectNameBilder = objectNameBilder.append(objectKeyName).append(DOT)
-											.append(singleSubAttribute);
+									objectNameBuilder.append(objectKeyName).append(DOT).append(singleSubAttribute);
 								} else {
-									objectKeyName = objectNameBilder.append(DOT).append(DEFAULT).toString();
-									objectNameBilder = objectNameBilder.append(DOT).append(singleSubAttribute);
+									objectKeyName = objectNameBuilder.append(DOT).append(DEFAULT).toString();
+									objectNameBuilder.append(DOT).append(singleSubAttribute);
 								}
 
 								if (attributeValues.isEmpty()) {
 
 									attributeValues.add(sAttributeValue);
-									multivaluedAttributeMap.put(objectNameBilder.toString(), attributeValues);
+									multivaluedAttributeMap.put(objectNameBuilder.toString(), attributeValues);
 								} else {
-									if (multivaluedAttributeMap.containsKey(objectNameBilder.toString())) {
-										attributeValues = multivaluedAttributeMap.get(objectNameBilder.toString());
+									if (multivaluedAttributeMap.containsKey(objectNameBuilder.toString())) {
+										attributeValues = multivaluedAttributeMap.get(objectNameBuilder.toString());
 										attributeValues.add(sAttributeValue);
 									} else {
-										Collection<Object> newAttributeValues = new ArrayList<Object>();
+										Collection<Object> newAttributeValues = new ArrayList<>();
 										newAttributeValues.add(sAttributeValue);
-										multivaluedAttributeMap.put(objectNameBilder.toString(), newAttributeValues);
+										multivaluedAttributeMap.put(objectNameBuilder.toString(), newAttributeValues);
 									}
 
 								}
-								objectNameBilder.delete(0, objectNameBilder.length());
+								objectNameBuilder.delete(0, objectNameBuilder.length());
 
 							}
 						}
 					} else {
-						objectKeyName = objectNameBilder.append(DOT).append(singleAttribute.toString()).toString();
+						objectKeyName = objectNameBuilder.append(DOT).append(singleAttribute.toString()).toString();
 						cob.addAttribute(objectKeyName, singleAttribute);
 					}
 				}
@@ -1191,10 +1211,10 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				}
 
 			} else if (attribute instanceof JSONObject) {
-				for (String s : ((JSONObject) attribute).keySet()) {
+				for (final String s : ((JSONObject) attribute).keySet()) {
 					Object attributeValue;
-					if (key.contains(FORBIDENSEPPARATOR)) {
-						key = key.replace(FORBIDENSEPPARATOR, SEPPARATOR);
+					if (key.contains(FORBIDDEN_SEPARATOR)) {
+						key = key.replace(FORBIDDEN_SEPARATOR, SEPARATOR);
 					}
 
 					if (((JSONObject) attribute).isNull(s)) {
@@ -1207,8 +1227,8 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 					}
 
-					StringBuilder objectNameBilder = new StringBuilder(key);
-					cob.addAttribute(objectNameBilder.append(DOT).append(s).toString(), attributeValue);
+					final StringBuilder objectNameBuilder = new StringBuilder(key);
+					cob.addAttribute(objectNameBuilder.append(DOT).append(s).toString(), attributeValue);
 				}
 
 			} else {
@@ -1228,7 +1248,8 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				}
 			}
 		}
-		ConnectorObject finalConnectorObject = cob.build();
+
+		final ConnectorObject finalConnectorObject = cob.build();
 		// LOGGER.info("The connector object returned from the processed json:
 		// {0}", finalConnectorObject);
 		return finalConnectorObject;
@@ -1236,7 +1257,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public List<String> excludeFromAssembly(List<String> excludedAttributes) {
+	public List<String> excludeFromAssembly(final List<String> excludedAttributes) {
 
 		excludedAttributes.add(META);
 		excludedAttributes.add("schemas");
@@ -1245,25 +1266,23 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public Set<Attribute> attributeInjection(Set<Attribute> injectedAttributeSet, JSONObject loginJson) {
+	public Set<Attribute> attributeInjection(final Set<Attribute> injectedAttributeSet, JSONObject loginJson) {
 		return injectedAttributeSet;
 	}
 
 	@Override
-	public StringBuilder processContainsAllValuesFilter(String p, ContainsAllValuesFilter filter,
-			FilterHandler handler) {
-		StringBuilder preprocessedFilter = null;
-		preprocessedFilter = handler.processArrayQ(filter, p);
-		return preprocessedFilter;
+	public StringBuilder processContainsAllValuesFilter(final String p, final ContainsAllValuesFilter filter,
+			final FilterHandler handler) {
+		return handler.processArrayQ(filter, p);
 	}
 
 	@Override
-	public ObjectClassInfoBuilder schemaBuilder(String attributeName, Map<String, Map<String, Object>> attributeMap,
-			ObjectClassInfoBuilder builder, SchemaObjectBuilderGeneric schemaBuilder) {
+	public ObjectClassInfoBuilder schemaBuilder(final String attributeName, final Map<String, Map<String, Object>> attributeMap,
+			ObjectClassInfoBuilder builder, final SchemaObjectBuilderGeneric schemaBuilder) {
 
 		AttributeInfoBuilder infoBuilder = new AttributeInfoBuilder(attributeName);
-		Boolean containsDictionaryValue = false;
-		Map<String, Object> caseHandlingMap = new HashMap<String, Object>();
+		boolean containsDictionaryValue = false;
+		Map<String, Object> caseHandlingMap = new HashMap<>();
 
 		List<String> dictionary = populateDictionary(WorkaroundFlags.BUILDERFLAG);
 
@@ -1273,12 +1292,12 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 
 		if (!containsDictionaryValue) {
 			dictionary.clear();
-			Map<String, Object> schemaSubPropertysMap = new HashMap<String, Object>();
-			schemaSubPropertysMap = attributeMap.get(attributeName);
+			final Map<String, Object> schemaSubPropertysMap = attributeMap.get(attributeName);
 
-			for (String subPropertyName : schemaSubPropertysMap.keySet()) {
+			for (final String subPropertyName : schemaSubPropertysMap.keySet()) {
 				containsDictionaryValue = false;
 				dictionary = populateDictionary(WorkaroundFlags.PARSERFLAG);
+
 				if (dictionary.contains(subPropertyName)) {
 					containsDictionaryValue = true;
 				}
@@ -1286,9 +1305,9 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				if (containsDictionaryValue) {
 					// TODO check positive cases
 					infoBuilder = new AttributeInfoBuilder(attributeName);
-					JSONArray jsonArray = new JSONArray();
+					final JSONArray jsonArray = new JSONArray();
 LOGGER.info("The sub property name: {0}", subPropertyName);
-				/*	jsonArray = ((JSONArray) schemaSubPropertysMap.get(subPropertyName));
+				/*	jsonArray = ((JSONArray) schemaSubPropertiesMap.get(subPropertyName));
 					for (int i = 0; i < jsonArray.length(); i++) {
 						JSONObject attribute = new JSONObject();
 						attribute = jsonArray.getJSONObject(i);
@@ -1309,7 +1328,7 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 						}
 					} else if ("caseExact".equals(subPropertyName)) {
 
-						caseHandlingMap.put("caseExact", (Boolean) schemaSubPropertysMap.get(subPropertyName));
+						caseHandlingMap.put("caseExact", schemaSubPropertysMap.get(subPropertyName));
 					}
 
 					infoBuilder = schemaBuilder.subPropertiesChecker(infoBuilder, schemaSubPropertysMap,
@@ -1344,8 +1363,8 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	}
 
 	@Override
-	public ObjectClassInfoBuilder schemaObjectInjection(ObjectClassInfoBuilder builder, String attributeName,
-			AttributeInfoBuilder infoBuilder) {
+	public ObjectClassInfoBuilder schemaObjectInjection(final ObjectClassInfoBuilder builder, final String attributeName,
+			final AttributeInfoBuilder infoBuilder) {
 
 		builder.addAttributeInfo(OperationalAttributeInfos.ENABLE);
 		builder.addAttributeInfo(OperationalAttributeInfos.PASSWORD);
@@ -1354,15 +1373,15 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	}
 
 	@Override
-	public AttributeInfoBuilder schemaObjectParametersInjection(AttributeInfoBuilder infoBuilder,
-			String attributeName) {
+	public AttributeInfoBuilder schemaObjectParametersInjection(final AttributeInfoBuilder infoBuilder,
+			final String attributeName) {
 		return infoBuilder;
 	}
 
 	@Override
-	public List<String> populateDictionary(WorkaroundFlags flag) {
+	public List<String> populateDictionary(final WorkaroundFlags flag) {
 
-		List<String> dictionary = new ArrayList<String>();
+		final List<String> dictionary = new ArrayList<>();
 
 		if (WorkaroundFlags.PARSERFLAG.getValue().equals(flag.getValue())) {
 			dictionary.add(SUBATTRIBUTES);
@@ -1378,13 +1397,13 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	}
 
 	@Override
-	public Boolean checkFilter(Filter filter, String endpointName) {
+	public Boolean checkFilter(final Filter filter, final String endpointName) {
 		LOGGER.info("Check filter standard");
 		return false;
 	}
 
 	/**
-	 * Called when the query is evaluated as an filter not containing an uid
+	 * Called when the query is evaluated as a filter not containing an uid
 	 * type attribute.
 	 * 
 	 * @param query
@@ -1398,17 +1417,17 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	 *            "Users").
 	 */
 
-	private String qIsFilter(Filter query, StringBuilder queryUriSnippet, String providerName,
-			String resourceEndPoint) {
+	private String qIsFilter(final Filter query, final StringBuilder queryUriSnippet, final String providerName,
+			final String resourceEndPoint) {
 
-		char prefixChar;
-		StringBuilder filterSnippet = new StringBuilder();
+		final char prefixChar;
+		final StringBuilder filterSnippet;
 		if (queryUriSnippet.toString().isEmpty()) {
-			prefixChar = QUERYCHAR;
+			prefixChar = QUERY_CHAR;
 
 		} else {
 
-			prefixChar = QUERYDELIMITER;
+			prefixChar = QUERY_DELIMITER;
 		}
 
 //		if (query instanceof AttributeFilter) {
@@ -1430,12 +1449,9 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 //			}
 //
 //		}
-		
-		
-		StringBuilder providerDotEndpoint = new StringBuilder(resourceEndPoint).append(DOT).append(providerName);
 
 
-			filterSnippet = query.accept(new FilterHandler(), providerDotEndpoint.toString());
+		filterSnippet = query.accept(new FilterHandler(), resourceEndPoint + DOT + providerName);
 
 		queryUriSnippet.append(prefixChar).append("filter=").append(filterSnippet.toString());
 
@@ -1443,60 +1459,60 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	}
 
 	@Override
-	public void handleCAVGroupQuery(JSONObject jsonObject, String resourceEndPoint, ResultsHandler handler,
-			String scimBaseUri, Header authHeader, ScimConnectorConfiguration conf)
-			throws ClientProtocolException, IOException {
+	public void handleCAVGroupQuery(final JSONObject jsonObject, final String resourceEndPoint, final ResultsHandler handler,
+			final String scimBaseUri, final Header authHeader, final ScimConnectorConfiguration conf)
+			throws IOException {
 
-		ConnectorObject connectorObject = buildConnectorObject(jsonObject, resourceEndPoint);
+		final ConnectorObject connectorObject = buildConnectorObject(jsonObject, resourceEndPoint);
 
 		handler.handle(connectorObject);
 
 	}
 
-	protected HttpPost buildHttpPost(String uri, Header authHeader, JSONObject jsonBody)
+	protected HttpPost buildHttpPost(final String uri, final Header authHeader, final JSONObject jsonBody)
 			throws UnsupportedEncodingException, JSONException {
 
-		HttpPost httpPost = new HttpPost(uri);
+		final HttpPost httpPost = new HttpPost(uri);
 		httpPost.addHeader(authHeader);
 		httpPost.addHeader(PRETTYPRINTHEADER);
 
-		HttpEntity entity = new ByteArrayEntity(jsonBody.toString().getBytes("UTF-8"));
-		// LOGGER.info("The update JSON object wich is being sent: {0}",
+		final HttpEntity entity = new ByteArrayEntity(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
+		// LOGGER.info("The update JSON object which is being sent: {0}",
 		// jsonBody);
 		httpPost.setEntity(entity);
 		httpPost.setHeader("Content-Type", CONTENTTYPE);
 
 		// StringEntity bodyContent = new StringEntity(jsonBody.toString(1));
 
-		// bodyContent.setContentType(CONTENTTYPE);
+		// bodyContent.setContentType(CONTENT_TYPE);
 		// httpPost.setEntity(bodyContent);
 
 		return httpPost;
 	}
 
-	protected HttpGet buildHttpGet(String uri, Header authHeader) {
+	protected HttpGet buildHttpGet(final String uri, final Header authHeader) {
 
-		HttpGet httpGet = new HttpGet(uri);
+		final HttpGet httpGet = new HttpGet(uri);
 		httpGet.addHeader(authHeader);
 		httpGet.addHeader(PRETTYPRINTHEADER);
 
 		return httpGet;
 	}
 
-	protected HttpPatch buildHttpPatch(String uri, Header authHeader, JSONObject jsonBody)
+	protected HttpPatch buildHttpPatch(final String uri, final Header authHeader, final JSONObject jsonBody)
 			throws UnsupportedEncodingException, JSONException {
 
-		HttpPatch httpPatch = new HttpPatch(uri);
+		final HttpPatch httpPatch = new HttpPatch(uri);
 
 		httpPatch.addHeader(authHeader);
 		httpPatch.addHeader(PRETTYPRINTHEADER);
-		HttpEntity entity = new ByteArrayEntity(jsonBody.toString().getBytes("UTF-8"));
-		// LOGGER.info("The update JSON object wich is being sent: {0}",
+		final HttpEntity entity = new ByteArrayEntity(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
+		// LOGGER.info("The update JSON object which is being sent: {0}",
 		// jsonBody);
 		httpPatch.setEntity(entity);
 		// StringEntity bodyContent = new StringEntity(jsonBody.toString(1));
 
-		// bodyContent.setContentType(CONTENTTYPE);
+		// bodyContent.setContentType(CONTENT_TYPE);
 		// httpPatch.setEntity(bodyContent);
 
 		httpPatch.setHeader("Content-Type", CONTENTTYPE);
@@ -1504,38 +1520,39 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 		return httpPatch;
 	}
 
-	protected HttpDelete buildHttpDelete(String uri, Header authHeader) {
+	protected HttpDelete buildHttpDelete(final String uri, final Header authHeader) {
 
-		HttpDelete httpDelete = new HttpDelete(uri);
+		final HttpDelete httpDelete = new HttpDelete(uri);
 		httpDelete.addHeader(authHeader);
 		httpDelete.addHeader(PRETTYPRINTHEADER);
 		return httpDelete;
 	}
 
-	public void handleInvalidStatus(String errorPitch, String responseString, String situation, int statusCode)
+	public void handleInvalidStatus(final String errorPitch, final String responseString, final String situation, final int statusCode)
 			throws ParseException, IOException {
 
-		String error = ErrorHandler.onNoSuccess(responseString, statusCode, situation);
-		StringBuilder errorString = new StringBuilder(errorPitch).append(error);
+		final String error = ErrorHandler.onNoSuccess(responseString, statusCode, situation);
+		final StringBuilder errorString = new StringBuilder(errorPitch).append(error);
+
 		switch (statusCode) {
-		case 400:
-			handleBadRequest(error);
-			break;
-		case 401:
-			errorString.insert(0, "Unauthorized ");
-			throw new InvalidCredentialException(errorString.toString());
-		case 404:
-			LOGGER.warn("Resource not found or resource was already deleted");
-			break;
-		case 409:
-			errorString.insert(0, "Conflict ");
-			throw new AlreadyExistsException(errorString.toString());
-		case 500:
-			errorString.insert(0, "Provider server error ");
-			throw new ConnectorException(errorString.toString());
-		default:
-			LOGGER.warn(error);
-			break;
+			case 400:
+				handleBadRequest(error);
+				break;
+			case 401:
+				errorString.insert(0, "Unauthorized ");
+				throw new InvalidCredentialException(errorString.toString());
+			case 404:
+				LOGGER.warn("Resource not found or resource was already deleted");
+				break;
+			case 409:
+				errorString.insert(0, "Conflict ");
+				throw new AlreadyExistsException(errorString.toString());
+			case 500:
+				errorString.insert(0, "Provider server error ");
+				throw new ConnectorException(errorString.toString());
+			default:
+				LOGGER.warn(error);
+				break;
 		}
 	}
 
@@ -1544,22 +1561,20 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 		return "standard";
 	}
 
-	public void handleBadRequest(String error) {
+	public void handleBadRequest(final String error) {
 
 		throw new ConnectorException(error);
 	}
 
-	protected HttpClient initHttpClient(ScimConnectorConfiguration conf) {
-		HttpClientBuilder httpClientBulder = HttpClientBuilder.create();
+	protected HttpClient initHttpClient(final ScimConnectorConfiguration conf) {
+		final HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
 
 		if (StringUtil.isNotEmpty(conf.getProxyUrl())) {
-			HttpHost proxy = new HttpHost(conf.getProxyUrl(), conf.getProxyPortNumber());
-			DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(proxy);
-			httpClientBulder.setRoutePlanner(routePlanner);
+			final HttpHost proxy = new HttpHost(conf.getProxyUrl(), conf.getProxyPortNumber());
+			final DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(proxy);
+			httpClientBuilder.setRoutePlanner(routePlanner);
 		}
 
-		HttpClient httpClient = httpClientBulder.build();
-
-		return httpClient;
+		return httpClientBuilder.build();
 	}
 }

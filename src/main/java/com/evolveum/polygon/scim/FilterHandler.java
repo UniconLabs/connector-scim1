@@ -135,10 +135,9 @@ public class FilterHandler implements FilterVisitor<StringBuilder, String> {
 	@Override
 	public StringBuilder visitContainsAllValuesFilter(String p, ContainsAllValuesFilter filter) {
 
-		StrategyFetcher fetcher = new StrategyFetcher();
-		HandlingStrategy strategy = fetcher.fetchStrategy(p);
+		final HandlingStrategy strategy = new StrategyFetcher().fetchStrategy(p);
 
-		StringBuilder preprocessedFilter = strategy.processContainsAllValuesFilter(p, filter, this);
+		final StringBuilder preprocessedFilter = strategy.processContainsAllValuesFilter(p, filter, this);
 
 		if (null != preprocessedFilter) {
 			return preprocessedFilter;

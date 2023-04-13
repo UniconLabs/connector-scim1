@@ -15,21 +15,12 @@
  */
 package com.evolveum.polygon.scim;
 
-/**
- *
- * @author Macik
- * 
- * Implementation of the connId connector class for the scim standard.
- * 
- */
-
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.identityconnectors.common.CollectionUtil;
+import org.identityconnectors.common.StringUtil;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
@@ -54,29 +45,33 @@ import org.identityconnectors.framework.spi.operations.TestOp;
 import org.identityconnectors.framework.spi.operations.UpdateAttributeValuesOp;
 import org.identityconnectors.framework.spi.operations.UpdateOp;
 
-import com.evolveum.polygon.scim.GroupDataBuilder;;
 
+/**
+ *
+ * @author Macik
+ *
+ * Implementation of the connId connector class for the scim standard.
+ *
+ */
 @ConnectorClass(displayNameKey = "ScimConnector.connector.display", configurationClass = ScimConnectorConfiguration.class)
-
 public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, SearchOp<Filter>, TestOp, UpdateOp,
 		UpdateAttributeValuesOp {
-
-	private ScimConnectorConfiguration configuration;
 
 	private static final String SCHEMAS_ENDPOINT = "Schemas/";
 	private static final String USERS_ENDPOINT = "Users";
 	private static final String GROUPS_ENDPOINT = "Groups";
-	private static final String DEFAULT = "default";
-	private static final String DELETE = "delete";
+	private static final String DEFAULT_UID = "default";
+	private static final String DELETE_OP = "remove";
+	private static final String ADD_OP = "add";
+	private static final String UPDATE_OP = "replace";
+	private static final char QUERY_CHAR = '?';
+	private static final char QUERY_DELIMITER = '&';
+	private static final Log LOGGER = Log.getLog(ScimConnector.class);
+
+	private ScimConnectorConfiguration configuration;
 	private Schema schema = null;
 	private String providerName = "";
-
 	private HandlingStrategy strategy;
-
-	private static final char QUERYCHAR = '?';
-	private static final char QUERYDELIMITER = '&';
-
-	private static final Log LOGGER = Log.getLog(ScimConnector.class);
 
 	@Override
 	public Schema schema() {
@@ -96,8 +91,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 				schemaBuilder.defineObjectClass(userSchemaInfo);
 				schemaBuilder.defineObjectClass(groupSchemaInfo);
 			}
-			return schemaBuilder.build();
+
+			this.schema = schemaBuilder.build();
+			return schema;
 		}
+
 		return this.schema;
 	}
 
@@ -108,7 +106,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * 
 	 **/
 	@Override
-	public void delete(ObjectClass object, Uid uid, OperationOptions options) {
+	public void delete(final ObjectClass object, final Uid uid, final OperationOptions options) {
 		LOGGER.info("Resource object delete");
 		if (uid.getUidValue() == null && uid.getUidValue().isEmpty()) {
 			LOGGER.error("Uid not provided or empty: {0} ", uid.getUidValue());
@@ -116,11 +114,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 		}
 
 		if (object == null) {
-			LOGGER.error("Object value not provided {0} ", object);
+			LOGGER.error("Object value not provided for delete of {0} ", uid);
 			throw new InvalidAttributeValueException("Object value not provided");
 		}
 
-		String endpointName = object.getObjectClassValue();
+		final String endpointName = object.getObjectClassValue();
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
@@ -142,19 +140,19 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * implemented for core schema processing are applied.
 	 */
 	@Override
-	public Uid create(ObjectClass object, Set<Attribute> attribute, OperationOptions options) {
+	public Uid create(final ObjectClass object, final Set<Attribute> attribute, final OperationOptions options) {
 		LOGGER.info("Resource object create");
 
-		Set<Attribute> injectedAttributeSet = new HashSet<Attribute>();
+		Set<Attribute> injectedAttributeSet = new HashSet<>();
 
 		if (attribute == null || attribute.isEmpty()) {
 			LOGGER.error("Set of Attributes can not be null or empty", attribute);
 			throw new ConnectorException("Set of Attributes value is null or empty");
 		}
 
-		Uid uid = new Uid(DEFAULT);
-		GenericDataBuilder jsonDataBuilder = new GenericDataBuilder("");
-		String endpointName = object.getObjectClassValue();
+		Uid uid = new Uid(DEFAULT_UID);
+		final GenericDataBuilder jsonDataBuilder = new GenericDataBuilder(ADD_OP, scimVersionInt());
+		final String endpointName = object.getObjectClassValue();
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 			injectedAttributeSet = strategy.addAttributesToInject(injectedAttributeSet);
@@ -188,7 +186,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	}
 
 	@Override
-	public void init(Configuration configuration) {
+	public void init(final Configuration configuration) {
 		String loginUrl;
 		LOGGER.info("Initiation");
 		this.configuration = (ScimConnectorConfiguration) configuration;
@@ -224,22 +222,23 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * Implementation of the connId update method. The method evaluates if
 	 * generic methods can be applied to the query. If not the methods
 	 * implemented for core schema processing are applied. This method is used
-	 * to update singular and non-complex attributes, e.g. name.familyname.
+	 * to update singular and non-complex attributes, e.g. name.familyName.
 	 * 
 	 * @return the Uid of the updated object.
 	 **/
 
 	@Override
-	public Uid update(ObjectClass object, Uid id, Set<Attribute> attributes, OperationOptions options) {
+	public Uid update(final ObjectClass object, final Uid id, final Set<Attribute> attributes, final OperationOptions options) {
 		LOGGER.info("Resource object update");
 		if (attributes == null || attributes.isEmpty()) {
 			LOGGER.error("Set of Attributes can not be null or empty: {0}", attributes);
 			throw new ConnectorException("Set of Attributes value is null or empty");
 		}
-		Uid uid = new Uid(DEFAULT);
-		GenericDataBuilder genericDataBuilder = new GenericDataBuilder("");
 
-		String endpointName = object.getObjectClassValue();
+		Uid uid = new Uid(DEFAULT_UID);
+		final GenericDataBuilder genericDataBuilder = new GenericDataBuilder(UPDATE_OP, scimVersionInt());
+
+		final String endpointName = object.getObjectClassValue();
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
@@ -267,7 +266,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 			final String baseUri = accessManager.getBaseUri();
 		
 			if (baseUri !=null && !baseUri.isEmpty()) {
-				LOGGER.info("Test was succesfull");
+				LOGGER.info("Test was successful");
 			} else {
 
 				LOGGER.error("Error with establishing connection while testing. No authorization data were provided.");
@@ -282,10 +281,10 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	}
 
 	@Override
-	public FilterTranslator<Filter> createFilterTranslator(ObjectClass arg0, OperationOptions arg1) {
-		return new FilterTranslator<Filter>() {
+	public FilterTranslator<Filter> createFilterTranslator(final ObjectClass arg0, final OperationOptions arg1) {
+		return new FilterTranslator<>() {
 			@Override
-			public List<Filter> translate(Filter filter) {
+			public List<Filter> translate(final Filter filter) {
 				return CollectionUtil.newList(filter);
 			}
 		};
@@ -303,18 +302,18 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 *             if the handler attribute is null.
 	 */
 	@Override
-	public void executeQuery(ObjectClass objectClass, Filter query, ResultsHandler handler, OperationOptions options) {
+	public void executeQuery(final ObjectClass objectClass, final Filter query, final ResultsHandler handler, final OperationOptions options) {
 		LOGGER.info("Connector object execute query");
 		LOGGER.info("Object class value {0}", objectClass.getDisplayNameKey());
-		StringBuilder queryUriSnippet = new StringBuilder("");
-		String endpointName = objectClass.getObjectClassValue();
+		StringBuilder queryUriSnippet = new StringBuilder();
+		final String endpointName = objectClass.getObjectClassValue();
 
 		if (options != null) {
 			queryUriSnippet = processOptions(options);
 		}
 
 		LOGGER.info("The operation options: {0}", options);
-		LOGGER.info("The filter which is beaing processed: {0}", query);
+		LOGGER.info("The filter which is being processed: {0}", query);
 
 		if (handler == null) {
 
@@ -338,7 +337,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	}
 
 	/**
-	 * Calls the "schemaObjectbuilder" class "buildSchema" methods for all the
+	 * Calls the "schemaObjectBuilder" class "buildSchema" methods for all the
 	 * individual schema resource objects.
 	 * 
 	 * @param schemaBuilder
@@ -347,26 +346,26 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * @param schemaParser
 	 *            The "schemaParser" object which contains the map
 	 *            representation of the service schema data.
-	 * @return an the instance of "SchemaBuilder" populated with the data
+	 * @return The instance of "SchemaBuilder" populated with the data
 	 *         representing the schemas of resource objects.
 	 */
-	private SchemaBuilder buildSchemas(SchemaBuilder schemaBuilder, ParserSchemaScim schemaParser) {
+	private SchemaBuilder buildSchemas(final SchemaBuilder schemaBuilder, final ParserSchemaScim schemaParser) {
 		LOGGER.info("Building schemas from provided data");
 
-		SchemaObjectBuilderGeneric schemaObjectBuilder = new SchemaObjectBuilderGeneric();
+		final SchemaObjectBuilderGeneric schemaObjectBuilder = new SchemaObjectBuilderGeneric();
 		int iterator = 0;
-		Map<String, String> hlAtrribute = new HashMap<String, String>();
-		List<Map<String, Map<String, Object>>> attributeMapList = schemaParser.getAttributeMapList(strategy);
+		Map<String, String> hlAttribute;
+		final List<Map<String, Map<String, Object>>> attributeMapList = schemaParser.getAttributeMapList(strategy);
 
-		for (Map<String, Map<String, Object>> attributeMap : attributeMapList) {
-			hlAtrribute = schemaParser.getHlAttributeMapList().get(iterator);
+		for (final Map<String, Map<String, Object>> attributeMap : attributeMapList) {
+			hlAttribute = schemaParser.getHlAttributeMapList().get(iterator);
 
-			for (String key : hlAtrribute.keySet()) {
+			for (final String key : hlAttribute.keySet()) {
 				if ("endpoint".equals(key)) {
-					String schemaName = hlAtrribute.get(key);
-					ObjectClassInfo oclassInfo = schemaObjectBuilder.buildSchema(attributeMap, schemaName,
+					final String schemaName = hlAttribute.get(key);
+					final ObjectClassInfo objectClassInfo = schemaObjectBuilder.buildSchema(attributeMap, schemaName,
 							strategy);
-					schemaBuilder.defineObjectClass(oclassInfo);
+					schemaBuilder.defineObjectClass(objectClassInfo);
 				}
 			}
 			iterator++;
@@ -387,18 +386,19 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 *         pagination information of or is no pagination information is
 	 *         provided an empty snippet.
 	 */
-	private StringBuilder processOptions(OperationOptions options) {
-		StringBuilder queryBuilder = new StringBuilder();
+	private StringBuilder processOptions(final OperationOptions options) {
+		final StringBuilder queryBuilder = new StringBuilder();
 
-		Integer pageSize = options.getPageSize();
-		Integer PagedResultsOffset = options.getPagedResultsOffset();
+		final Integer pageSize = options.getPageSize();
+		final Integer PagedResultsOffset = options.getPagedResultsOffset();
+
 		if (pageSize != null && PagedResultsOffset != null) {
-			queryBuilder.append(QUERYCHAR).append("startIndex=").append(PagedResultsOffset).append(QUERYDELIMITER)
+			queryBuilder.append(QUERY_CHAR).append("startIndex=").append(PagedResultsOffset).append(QUERY_DELIMITER)
 					.append("count=").append(pageSize);
 
 			return queryBuilder;
 		}
-		return queryBuilder.append("");
+		return queryBuilder;
 	}
 
 	/**
@@ -411,17 +411,18 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * @return the Uid of the updated object.
 	 **/
 	@Override
-	public Uid addAttributeValues(ObjectClass object, Uid id, Set<Attribute> attributes, OperationOptions options) {
+	public Uid addAttributeValues(final ObjectClass object, final Uid id, final Set<Attribute> attributes, final OperationOptions options) {
 
 		LOGGER.info("Resource object update for addition of values");
 		if (attributes == null || attributes.isEmpty()) {
 			LOGGER.error("Set of Attributes can not be null or empty: {}", attributes);
 			throw new ConnectorException("Set of Attributes value is null or empty");
 		}
-		Uid uid = new Uid(DEFAULT);
-		GenericDataBuilder genericDataBuilder = new GenericDataBuilder("");
 
-		String endpointName = object.getObjectClassValue();
+		Uid uid = new Uid(DEFAULT_UID);
+		final GenericDataBuilder genericDataBuilder = new GenericDataBuilder(UPDATE_OP, scimVersionInt());
+
+		final String endpointName = object.getObjectClassValue();
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
@@ -449,17 +450,17 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * @return the Uid of the updated object.
 	 **/
 	@Override
-	public Uid removeAttributeValues(ObjectClass object, Uid id, Set<Attribute> attributes, OperationOptions options) {
+	public Uid removeAttributeValues(final ObjectClass object, final Uid id, final Set<Attribute> attributes, final OperationOptions options) {
 
 		LOGGER.info("Resource object update for removal of attribute values");
 		if (attributes == null || attributes.isEmpty()) {
 			LOGGER.error("Set of Attributes can not be null or empty: {0}", attributes);
 			throw new ConnectorException("Set of Attributes value is null or empty");
 		}
-		Uid uid = new Uid(DEFAULT);
-		GenericDataBuilder genericDataBuilder = new GenericDataBuilder(DELETE);
+		Uid uid = new Uid(DEFAULT_UID);
+		final GenericDataBuilder genericDataBuilder = new GenericDataBuilder(DELETE_OP, scimVersionInt());
 
-		String endpointName = object.getObjectClassValue();
+		final String endpointName = object.getObjectClassValue();
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
@@ -476,6 +477,16 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		return uid;
 
+	}
+
+	private int scimVersionInt() {
+		final String version = configuration.getVersion();
+
+		if (StringUtil.isNotBlank(version) && version.trim().toLowerCase().contains("v2")) {
+			return 2;
+		} else {
+			return 1;
+		}
 	}
 
 }

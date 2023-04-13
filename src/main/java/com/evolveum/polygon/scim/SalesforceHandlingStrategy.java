@@ -16,17 +16,14 @@
 package com.evolveum.polygon.scim;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.http.Header;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
@@ -36,7 +33,6 @@ import org.apache.http.client.methods.HttpPatch;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.util.EntityUtils;
 import org.identityconnectors.common.logging.Log;
-import org.identityconnectors.framework.common.exceptions.AlreadyExistsException;
 import org.identityconnectors.framework.common.exceptions.ConnectionFailedException;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.ConnectorIOException;
@@ -51,6 +47,7 @@ import org.identityconnectors.framework.common.objects.filter.EqualsFilter;
 import org.identityconnectors.framework.common.objects.filter.Filter;
 import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 
@@ -67,10 +64,8 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 
 	private static final Log LOGGER = Log.getLog(SalesforceHandlingStrategy.class);
 	private static final String SCHEMATYPE = "urn:scim:schemas:extension:enterprise:1.0";
-	private static final String JSON = "json";
-
-	private static List<String> multivaluedAttributes = new ArrayList<String>();
-	private static List<String> writableAttributes = new ArrayList<String>();
+	private static final List<String> multivaluedAttributes = new ArrayList<>();
+	private static final List<String> writableAttributes = new ArrayList<>();
 
 	static {
 
@@ -95,27 +90,34 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 	}
 
 	@Override
-	public Map<String, Object> translateReferenceValues(Map<String, Map<String, Object>> attributeMap,
-			JSONArray referenceValues, Map<String, Object> subAttributeMap, int position, String attributeName) {
+	public Map<String, Object> translateReferenceValues(final Map<String, Map<String, Object>> attributeMap,
+			final JSONArray referenceValues, final Map<String, Object> subAttributeMap, final int position, final String attributeName) {
 
-		JSONObject referenceValue = new JSONObject();
+		JSONObject referenceValue;
 		Boolean isComplex = null;
-		Map<String, Object> processedParameters = new HashMap<String, Object>();
+		final Map<String, Object> processedParameters = new HashMap<>();
 
-		LOGGER.info(
-				"Processing trough Salesforce scim schema inconsistencies workaround (canonicalValues,referenceTypes)");
-		referenceValue = ((JSONArray) referenceValues).getJSONObject(position);
-		for (String subAttributeKeyNames : subAttributeMap.keySet()) {
-			if (!TYPE.equals(subAttributeKeyNames)) {
-				StringBuilder complexAttrName = new StringBuilder(attributeName);
-				attributeMap.put(
-						complexAttrName.append(DOT).append(referenceValue.get(VALUE)).append(DOT)
-								.append(subAttributeKeyNames).toString(),
-						(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
-				isComplex = true;
+		try {
+			LOGGER.info(
+					"Processing trough Salesforce scim schema inconsistencies workaround (canonicalValues,referenceTypes)");
+			referenceValue = referenceValues.getJSONObject(position);
+			for (final String subAttributeKeyNames : subAttributeMap.keySet()) {
+				if (!TYPE.equals(subAttributeKeyNames)) {
+					StringBuilder complexAttrName = new StringBuilder(attributeName);
+					attributeMap.put(
+							complexAttrName.append(DOT).append(referenceValue.get(VALUE)).append(DOT)
+									.append(subAttributeKeyNames).toString(),
+							(HashMap<String, Object>) subAttributeMap.get(subAttributeKeyNames));
+					isComplex = true;
 
+				}
 			}
+		} catch (ClassCastException | JSONException e) {
+			LOGGER.ok("Error translating reference values!");
+			throw e;
+			//throw new ConnectorException("Error translating reference values! {0}", e);
 		}
+
 		if (isComplex != null) {
 			processedParameters.put(ISCOMPLEX, isComplex);
 		}
@@ -125,16 +127,16 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 	}
 
 	@Override
-	public Uid groupUpdateProcedure(Integer statusCode, JSONObject jsonObject, String uri, Header authHeader,
-			ScimConnectorConfiguration conf) {
+	public Uid groupUpdateProcedure(Integer statusCode, final JSONObject jsonObject, final String uri, final Header authHeader,
+			final ScimConnectorConfiguration conf) {
 
 		Uid id = null;
-		HttpClient httpClient = initHttpClient(conf);
+		final HttpClient httpClient = initHttpClient(conf);
 		LOGGER.info(
 				"Status code from first update query: {0}. Processing trough Salesforce \"group/member update\" workaround. ",
 				statusCode);
-		HttpGet httpGet = buildHttpGet(uri, authHeader);
-		try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpGet);) {
+		final HttpGet httpGet = buildHttpGet(uri, authHeader);
+		try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpGet)) {
 			statusCode = response.getStatusLine().getStatusCode();
 			LOGGER.info("status code: {0}", statusCode);
 			if (statusCode == 200) {
@@ -144,15 +146,15 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 
 					JSONObject json = new JSONObject(responseString);
 					LOGGER.info("Json object returned from service provider: {0}", json);
-					for (String attributeName : jsonObject.keySet()) {
+					for (final String attributeName : jsonObject.keySet()) {
 
 						json.put(attributeName, jsonObject.get(attributeName));
 					}
 
-					StringEntity bodyContent = new StringEntity(json.toString(1));
+					final StringEntity bodyContent = new StringEntity(json.toString(1));
 					bodyContent.setContentType(CONTENTTYPE);
 
-					HttpPatch httpPatch = new HttpPatch(uri);
+					final HttpPatch httpPatch = new HttpPatch(uri);
 					httpPatch.addHeader(authHeader);
 					httpPatch.addHeader(PRETTYPRINTHEADER);
 					httpPatch.setEntity(bodyContent);
@@ -162,6 +164,7 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 						responseString = EntityUtils.toString(secondaryResponse.getEntity());
 						statusCode = secondaryResponse.getStatusLine().getStatusCode();
 						LOGGER.info("status code: {0}", statusCode);
+
 						if (statusCode == 200 || statusCode == 201) {
 							LOGGER.info("Update of resource was successful");
 
@@ -169,6 +172,7 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 							id = new Uid(json.getString(ID));
 							LOGGER.ok("Json response: {0}", json.toString(1));
 							return id;
+
 						} else {
 							ErrorHandler.onNoSuccess(responseString, statusCode, "updating object");
 						}
@@ -188,7 +192,7 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 					e);
 		} catch (IOException e) {
 
-			StringBuilder errorBuilder = new StringBuilder("Occurrence in the process of creating a resource object");
+			final StringBuilder errorBuilder = new StringBuilder("Occurrence in the process of creating a resource object");
 
 			if ((e instanceof SocketTimeoutException || e instanceof NoRouteToHostException)) {
 				errorBuilder.insert(0, "The connection timed out. ");
@@ -205,11 +209,12 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 				throw new ConnectorIOException(errorBuilder.toString(), e);
 			}
 		}
+
 		return id;
 	}
 
 	@Override
-	public List<String> excludeFromAssembly(List<String> excludedAttributes) {
+	public List<String> excludeFromAssembly(final List<String> excludedAttributes) {
 
 		excludedAttributes.add("schemas");
 		excludedAttributes.add(META);
@@ -219,20 +224,21 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 	}
 
 	@Override
-	public Set<Attribute> attributeInjection(Set<Attribute> injectedAttributeSet, JSONObject loginObject) {
+	public Set<Attribute> attributeInjection(final Set<Attribute> injectedAttributeSet, final JSONObject loginObject) {
 
 		String orgID = null;
 
 		if (loginObject != null) {
 			if (loginObject.has(ID)) {
 				orgID = loginObject.getString(ID);
-				String idParts[] = orgID.split("\\/");
+				String[] idParts = orgID.split("\\/");
 				orgID = idParts[4];
 			}
 		} else {
 
 			LOGGER.info("No json object returned after login");
 		}
+
 		// injection of organization ID into the set of attributes
 		if (orgID != null) {
 			LOGGER.info("The organization ID is: {0}", orgID);
@@ -243,18 +249,19 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 		} else {
 			LOGGER.warn("No organization ID specified in instance URL");
 		}
+
 		return injectedAttributeSet;
 
 	}
 
 	@Override
-	public StringBuilder processContainsAllValuesFilter(String p, ContainsAllValuesFilter filter,
-			FilterHandler handler) {
+	public StringBuilder processContainsAllValuesFilter(final String p, final ContainsAllValuesFilter filter,
+			final FilterHandler handler) {
 		// members
 
 		String attributeName = "";
 
-		String[] keyParts = filter.getName().split("\\."); // eq.
+		final String[] keyParts = filter.getName().split("\\."); // eq.
 		// members.User.value
 		if (keyParts.length == 3) {
 
@@ -268,11 +275,11 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 		}
 
 		if (!attributeName.isEmpty()) {
-			List<Object> valueList = filter.getAttribute().getValue();
-			Collection<Filter> filterList = new ArrayList<Filter>();
+			final List<Object> valueList = filter.getAttribute().getValue();
+			final Collection<Filter> filterList = new ArrayList<>();
 
-			for (Object value : valueList) {
-				Filter containsSingleAtribute = (EqualsFilter) FilterBuilder
+			for (final Object value : valueList) {
+				Filter containsSingleAtribute = FilterBuilder
 						.equalTo(AttributeBuilder.build(attributeName, value));
 				filterList.add(containsSingleAtribute);
 			}
@@ -282,12 +289,13 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 				return f.accept(new FilterHandler(), p);
 			}
 		}
+
 		return null;
 	}
 
 	@Override
-	public AttributeInfoBuilder schemaObjectParametersInjection(AttributeInfoBuilder infoBuilder,
-			String attributeName) {
+	public AttributeInfoBuilder schemaObjectParametersInjection(final AttributeInfoBuilder infoBuilder,
+			final String attributeName) {
 
 		if (multivaluedAttributes.contains(attributeName)) {
 			infoBuilder.setMultiValued(true);
@@ -299,17 +307,17 @@ public class SalesforceHandlingStrategy extends StandardScimHandlingStrategy imp
 		return infoBuilder;
 	}
 
-	public void handleBadRequest(String error) {
+	public void handleBadRequest(final String error) {
 
-		List<String> uniqueAttributes = new ArrayList<String>();
+		final List<String> uniqueAttributes = new ArrayList<>();
 		uniqueAttributes.add("invalid_grant");
 
-		String[] parts = error.split("\"");
-		for (String part : parts) {
+		final String[] parts = error.split("\"");
+		for (final String part : parts) {
 			if (uniqueAttributes.contains(part)) {
-				StringBuilder errorBuilder = new StringBuilder("Conflict. ").append(error).append(
-						". Propably the value you have chosen is already taken, please chose another and try again.");
-				throw new InvalidCredentialException(errorBuilder.toString());
+				final String errorBuilder = "Conflict. " + error +
+						". Probably the value you have chosen is already taken, please chose another and try again.";
+				throw new InvalidCredentialException(errorBuilder);
 			}
 		}
 		throw new ConnectorException(error);

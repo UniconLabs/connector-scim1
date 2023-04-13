@@ -18,7 +18,6 @@ package com.evolveum.polygon.scim;
 import java.util.Set;
 
 import org.identityconnectors.framework.common.objects.Attribute;
-import org.identityconnectors.framework.common.objects.ObjectClass;
 import org.json.JSONObject;
 
 /**
@@ -29,14 +28,25 @@ import org.json.JSONObject;
  */
 public interface ObjectTranslator {
 
-	String DELETE = "delete";
+	String SCIM_V1_DELETE = "delete";
+	String SCIM_V2_DELETE = "remove";
+	String SCIM_V2_ADD = "add";
+	String SCIM_v2_UPDATE = "replace";
 	String DELIMITER = "\\.";
 	String DEFAULT = "default";
 	String TYPE = "type";
-	String OPERATION = "operation";
+	String SCIM_V1_OPERATION = "operation";
+	String SCIM_V2_OPERATIONS = "Operations";
+	String SCIM_V2_SCHEMAS = "schemas";
+	String SCIM_V2_OP = "op";
+	String SCIM_V2_VALUE = "value";
+	String SCIM_V2_PATH = "path";
+	String SCIM_V2_SCHEMA_PATCH = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 	String DOT = ".";
 	String BLANK = "blank";
 	String SCHEMA = "schema";
+	String SEPARATOR = "-";
+	String FORBIDDEN_SEPARATOR = ":";
 
 	/**
 	 * Constructs a json object representation out of the provided data set and
@@ -58,5 +68,5 @@ public interface ObjectTranslator {
 	 * 			String which indicates what type of resource object is being created.
 	 * @return The complete json representation of the provided data set.
 	 */
-	JSONObject translateSetToJson(Set<Attribute> imsAttributes, Set<Attribute> injectedAttributes, String resourceEndPoint);
+	JSONObject translateSetToJson(final Set<Attribute> imsAttributes, final Set<Attribute> injectedAttributes, final String resourceEndPoint);
 }
