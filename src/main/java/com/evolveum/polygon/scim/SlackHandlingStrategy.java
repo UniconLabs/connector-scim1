@@ -80,14 +80,13 @@ public class SlackHandlingStrategy extends StandardScimHandlingStrategy implemen
 	private static final String EMAILSDEFAULTVALUE = "emails.default.value";
 	private static final String EMAILSDEFAULTPRIMARY = "emails.default.primary";
 	private static final String ATTRIBUTES = "attributes";
-	private static final String GROUPS = "groups";
 
 	@Override
 	public JSONObject injectMissingSchemaAttributes(String resourceName, JSONObject jsonObject) {
 
-		LOGGER.info("Processing trough slack missing schema attributes workaround for the resource: \"{0}\"",
+		LOGGER.info("Processing through slack missing schema attributes workaround for the resource: \"{0}\"",
 				resourceName);
-		if (USERS.equals(resourceName)) {
+		if (resourceName.contains(USERS)) {
 
 			Map<String, String> missingAttributes = new HashMap<String, String>();
 			missingAttributes.put(USERNAME, USERNAME);
@@ -407,7 +406,7 @@ public class SlackHandlingStrategy extends StandardScimHandlingStrategy implemen
 
 		LOGGER.info("Checking filter if contains all values handling is needed ");
 
-		if (endpointName.equals("Groups")) {
+		if (endpointName.equals(GROUPS)) {
 			if (filter instanceof EqualsFilter || filter instanceof ContainsAllValuesFilter) {
 
 				Attribute filterAttr = ((AttributeFilter) filter).getAttribute();
@@ -437,12 +436,13 @@ public class SlackHandlingStrategy extends StandardScimHandlingStrategy implemen
 		
 		HttpClient httpClient = initHttpClient(conf);
 
-		if (jsonObject.has(GROUPS)) {
-			int amountOfResources = jsonObject.getJSONArray(GROUPS).length();
+		final String groupsId = GROUPS.toLowerCase();
+		if (jsonObject.has(groupsId)) {
+			int amountOfResources = jsonObject.getJSONArray(groupsId).length();
 
 			for (int position = 0; position < amountOfResources; position++) {
 				JSONObject minResourceJson = new JSONObject();
-				minResourceJson = jsonObject.getJSONArray(GROUPS).getJSONObject(position);
+				minResourceJson = jsonObject.getJSONArray(groupsId).getJSONObject(position);
 				if (minResourceJson.has(VALUE)) {
 
 					String groupUid = minResourceJson.getString(VALUE);

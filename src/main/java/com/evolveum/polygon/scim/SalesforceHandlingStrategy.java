@@ -32,6 +32,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPatch;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.util.EntityUtils;
 import org.identityconnectors.common.logging.Log;
@@ -52,7 +53,6 @@ import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import com.evolveum.polygon.scim.common.HttpPatch;
 
 /**
  * 

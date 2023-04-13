@@ -53,7 +53,7 @@ public class SchemaObjectBuilderGeneric {
 	 *         information.
 	 **/
 	public ObjectClassInfo buildSchema(Map<String, Map<String, Object>> attributeMap, String objectTypeName,
-			String providerName) {
+			final HandlingStrategy strategy) {
 		ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
 		builder.addAttributeInfo(Name.INFO);
 
@@ -74,9 +74,6 @@ public class SchemaObjectBuilderGeneric {
 			excludedAttributes.add("displayName");
 		}
 		
-		StrategyFetcher fetch = new StrategyFetcher();
-		HandlingStrategy strategy = fetch.fetchStrategy(providerName);
-
 		for (String attributeName : attributeMap.keySet()) {
 
 			if(!excludedAttributes.contains(attributeName)){

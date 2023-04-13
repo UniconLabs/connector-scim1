@@ -31,6 +31,7 @@ import org.identityconnectors.framework.spi.StatefulConfiguration;
  */
 public class ScimConnectorConfiguration extends AbstractConfiguration implements StatefulConfiguration {
 
+	private String provider;
 	private String authentication;
 	private String scim_endpoint;
 	private String scim_version;
@@ -42,11 +43,30 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	private String clientId;
 	private GuardedString token;
 	private String clientSecret;
-
 	private String proxyUrl;
 	private Integer proxyPortNumber;
 
 	private static final Log LOGGER = Log.getLog(ScimConnectorConfiguration.class);
+
+	/**
+	 * Getter method for the "provider" attribute.
+	 *
+	 * @return the provider name string e.g. Slack, Salesforce etc.
+	 */
+	@ConfigurationProperty(order = 1, displayMessageKey = "provider.display", helpMessageKey = "provider.help", required = false, confidential = false)
+	public String getProvider() {
+		return provider;
+	}
+
+	/**
+	 * Setter method for the "authentication" attribute.
+	 *
+	 * @param provider
+	 *            the provider name string value e.g. Slack, Salesforce etc.
+	 */
+	public void setProvider(String provider) {
+		this.provider = provider;
+	}
 
 	/**
 	 * Getter method for the "authentication" attribute.
@@ -54,7 +74,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the authentication string.
 	 */
 
-	@ConfigurationProperty(order = 1, displayMessageKey = "authentication.display", helpMessageKey = "authentication.help", required = true, confidential = false)
+	@ConfigurationProperty(order = 4, displayMessageKey = "authentication.display", helpMessageKey = "authentication.help", required = true, confidential = false)
 	public String getAuthentication() {
 		return authentication;
 	}
@@ -75,7 +95,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the token string value.
 	 */
 
-	@ConfigurationProperty(order = 2, displayMessageKey = "token.display", helpMessageKey = "token.help", required = false, confidential = true)
+	@ConfigurationProperty(order = 5, displayMessageKey = "token.display", helpMessageKey = "token.help", required = false, confidential = true)
 	public GuardedString getToken() {
 		
 		return token;
@@ -98,7 +118,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the username string value.
 	 */
 
-	@ConfigurationProperty(order = 3, displayMessageKey = "username.display", helpMessageKey = "username.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 7, displayMessageKey = "username.display", helpMessageKey = "username.help", required = false, confidential = false)
 
 	public String getUserName() {
 		return username;
@@ -119,7 +139,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the password.
 	 */
-	@ConfigurationProperty(order = 4, displayMessageKey = "password.display", helpMessageKey = "password.help", required = false, confidential = true)
+	@ConfigurationProperty(order = 8, displayMessageKey = "password.display", helpMessageKey = "password.help", required = false, confidential = true)
 
 	public GuardedString getPassword() {
 
@@ -144,7 +164,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the client secret.
 	 */
-	@ConfigurationProperty(order = 5, displayMessageKey = "clientSecret.display", helpMessageKey = "clientSecret.help", required = false, confidential = true)
+	@ConfigurationProperty(order = 10, displayMessageKey = "clientSecret.display", helpMessageKey = "clientSecret.help", required = false, confidential = true)
 
 	public String getClientSecret() {
 		return clientSecret;
@@ -165,7 +185,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the client id.
 	 */
-	@ConfigurationProperty(order = 6, displayMessageKey = "clientId.display", helpMessageKey = "clientId.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 9, displayMessageKey = "clientId.display", helpMessageKey = "clientId.help", required = false, confidential = false)
 	public String getClientID() {
 		return clientId;
 	}
@@ -185,7 +205,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the scim endpoint.
 	 */
-	@ConfigurationProperty(order = 7, displayMessageKey = "scim_endpoint.display", helpMessageKey = "scim_endpoint.help", required = true, confidential = false)
+	@ConfigurationProperty(order = 2, displayMessageKey = "scim_endpoint.display", helpMessageKey = "scim_endpoint.help", required = true, confidential = false)
 
 	public String getEndpoint() {
 		return scim_endpoint;
@@ -206,7 +226,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the scim version.
 	 */
-	@ConfigurationProperty(order = 8, displayMessageKey = "scim_version.display", helpMessageKey = "scim_version.help", required = true, confidential = false)
+	@ConfigurationProperty(order = 3, displayMessageKey = "scim_version.display", helpMessageKey = "scim_version.help", required = true, confidential = false)
 
 	public String getVersion() {
 		return scim_version;
@@ -227,7 +247,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the login url.
 	 */
-	@ConfigurationProperty(order = 9, displayMessageKey = "loginUrl.display", helpMessageKey = "loginUrl.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 11, displayMessageKey = "loginUrl.display", helpMessageKey = "loginUrl.help", required = false, confidential = false)
 
 	public String getLoginURL() {
 		return loginUrl;
@@ -248,7 +268,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * 
 	 * @return the service grant.
 	 */
-	@ConfigurationProperty(order = 10, displayMessageKey = "grant.display", helpMessageKey = "grant.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 12, displayMessageKey = "grant.display", helpMessageKey = "grant.help", required = false, confidential = false)
 
 	public String getService() {
 		return grant;
@@ -270,7 +290,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the baseUrl string value.
 	 */
 
-	@ConfigurationProperty(order = 11, displayMessageKey = "baseUrl.display", helpMessageKey = "baseUrl.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 6, displayMessageKey = "baseUrl.display", helpMessageKey = "baseUrl.help", required = false, confidential = false)
 	public String getBaseUrl() {
 		return baseUrl;
 	}
@@ -291,7 +311,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the proxy url string value.
 	 */
 
-	@ConfigurationProperty(order = 12, displayMessageKey = "proxyUrl.display", helpMessageKey = "proxyUrl.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 13, displayMessageKey = "proxyUrl.display", helpMessageKey = "proxyUrl.help", required = false, confidential = false)
 	public String getProxyUrl() {
 		return proxyUrl;
 	}
@@ -312,7 +332,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	 * @return the proxy_port_number integer value.
 	 */
 
-	@ConfigurationProperty(order = 13, displayMessageKey = "proxyPortNumber.display", helpMessageKey = "proxyPortNumber.help", required = false, confidential = false)
+	@ConfigurationProperty(order = 14, displayMessageKey = "proxyPortNumber.display", helpMessageKey = "proxyPortNumber.help", required = false, confidential = false)
 	public Integer getProxyPortNumber() {
 		return proxyPortNumber;
 	}
@@ -384,6 +404,7 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	public void release() {
 		LOGGER.info("The release of configuration resources is being performed");
 
+		this.provider = null;
 		this.loginUrl = null;
 		this.scim_version = null;
 		this.scim_endpoint = null;
@@ -402,7 +423,8 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 	@Override
 	public String toString() {
 		return "ScimConnectorConfiguration{" +
-				"authentication='" + authentication + '\'' +
+				"provider='" + provider + '\'' +
+				", authentication='" + authentication + '\'' +
 				", scim_endpoint='" + scim_endpoint + '\'' +
 				", scim_version='" + scim_version + '\'' +
 				", username='" + username + '\'' +
@@ -413,6 +435,8 @@ public class ScimConnectorConfiguration extends AbstractConfiguration implements
 				", clientSecret='" + clientSecret + '\'' +
 				", proxyUrl='" + proxyUrl + '\'' +
 				", proxyPortNumber=" + proxyPortNumber +
+				", token=" + token +
+				", baseUrl=" + baseUrl +
 				'}';
 	}
 }

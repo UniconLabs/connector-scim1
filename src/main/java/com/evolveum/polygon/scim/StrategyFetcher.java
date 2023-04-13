@@ -19,7 +19,7 @@ package com.evolveum.polygon.scim;
 /**
  * @author Macik
  *
- *         Methods used to pick the right strategy depending form the connected
+ *         Methods used to pick the right strategy depending on the connected
  *         service.
  *
  */
@@ -28,11 +28,13 @@ public class StrategyFetcher {
 	private static final String SALESFORCE = "salesforce";
 	private static final String SLACK = "slack";
 
-	public HandlingStrategy fetchStrategy(final String url) {
-		if (url.contains(SALESFORCE)) {
+	public HandlingStrategy fetchStrategy(final String providerName) {
+		if (providerName.contains(SALESFORCE)) {
 			return new SalesforceHandlingStrategy();
-		} else if (url.contains(SLACK)) {
+
+		} else if (providerName.contains(SLACK)) {
 			return new SlackHandlingStrategy();
+
 		} else {
 			return new StandardScimHandlingStrategy();
 		}

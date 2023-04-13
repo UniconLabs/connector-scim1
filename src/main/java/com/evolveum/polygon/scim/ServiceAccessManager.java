@@ -58,9 +58,9 @@ public class ServiceAccessManager {
 	private Header aHeader;
 	private static final Log LOGGER = Log.getLog(ServiceAccessManager.class);
 
-	public ServiceAccessManager(ScimConnectorConfiguration configuration) {
+	public ServiceAccessManager(final ScimConnectorConfiguration configuration, final HandlingStrategy strategy) {
 
-		logIntoService(configuration);
+		logIntoService(configuration, strategy);
 	}
 	
 	/**
@@ -73,7 +73,7 @@ public class ServiceAccessManager {
 	 * 
 	 * @return a Map object carrying meta information about the login session.
 	 */
-	public void logIntoService(ScimConnectorConfiguration configuration) {
+	public void logIntoService(final ScimConnectorConfiguration configuration, final HandlingStrategy strategy) {
 
 		HttpPost loginInstance = new HttpPost();
 
@@ -135,32 +135,8 @@ public class ServiceAccessManager {
 
 					LOGGER.info("Login Successful");
 					
-				}else{
-					
-					String[] loginUrlParts;
-					String providerName="";
-					
-					if (configuration.getLoginURL() != null && !configuration.getLoginURL().isEmpty()) {
-
-						loginUrlParts = configuration.getLoginURL().split("\\."); // e.g.
-						// https://login.salesforce.com
-
-					} else {
-
-						loginUrlParts = configuration.getBaseUrl().split("\\."); // e.g.
-					}
-					// https://login.salesforce.com
-					if (loginUrlParts.length >= 2) {
-						providerName = loginUrlParts[1];
-					}
-					
-					if (!providerName.isEmpty()){
-						
-						StrategyFetcher fetcher = new StrategyFetcher();
-						HandlingStrategy strategy = fetcher.fetchStrategy(providerName);
-						strategy.handleInvalidStatus(" while loging into service", getResult, "loging into service", statusCode);
-					}
-				
+				} else {
+					strategy.handleInvalidStatus(" while loging into service", getResult, "loging into service", statusCode);
 				}
 
 				jsonObject = (JSONObject) new JSONTokener(getResult).nextValue();

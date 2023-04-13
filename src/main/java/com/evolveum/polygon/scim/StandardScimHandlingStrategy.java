@@ -16,14 +16,8 @@
 
 package com.evolveum.polygon.scim;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.ByteArrayInputStream;
-import java.io.FileWriter;
+
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
@@ -33,20 +27,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import org.apache.commons.io.IOUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
 import org.apache.http.ParseException;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.*;
 import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.EntityTemplate;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.DefaultProxyRoutePlanner;
 import org.apache.http.util.EntityUtils;
@@ -80,9 +68,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import com.evolveum.polygon.scim.ErrorHandler;
-import com.evolveum.polygon.scim.common.HttpPatch;
-
 
 /**
  * @author Macik
@@ -110,7 +95,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	public Uid create(String resourceEndPoint, ObjectTranslator objectTranslator, Set<Attribute> attributes,
 			Set<Attribute> injectedAttributeSet, ScimConnectorConfiguration conf) {
 
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf);
+		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
 		Header authHeader = accessManager.getAuthHeader();
 		String scimBaseUri = accessManager.getBaseUri();
@@ -233,7 +218,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 											// filter query for the group
 											// endpoint?
 		Boolean valueIsUid = false;
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf);
+		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
 		Header authHeader = accessManager.getAuthHeader();
 		String scimBaseUri = accessManager.getBaseUri();
@@ -408,7 +393,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 											LOGGER.error("No uid present in fetched object: {0}", minResourceJson);
 
 											throw new ConnectorException(
-													"No uid present in fetchet object while processing queuery result");
+													"No uid present in fetched object while processing query result");
 
 										}
 									}
@@ -434,7 +419,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 									LOGGER.error("Resource object not present in provider response to the query");
 
 									throw new ConnectorException(
-											"No uid present in fetchet object while processing queuery result");
+											"No uid present in fetched object while processing query result");
 
 								}
 							}
@@ -443,7 +428,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 							LOGGER.error(
 									"Builder error. Error while building connId object. The exception message: {0}",
 									e.getLocalizedMessage());
-							LOGGER.info("Builder error. Error while building connId object. The excetion message: {0}",
+							LOGGER.info("Builder error. Error while building connId object. The exception message: {0}",
 									e);
 							throw new ConnectorException("Builder error. Error while building connId object.", e);
 						}
@@ -506,10 +491,10 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 			} else {
 
 				LOGGER.error(
-						"An error occurred while processing the queuery http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+						"An error occurred while processing the query http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
 						e.getLocalizedMessage(), q);
 				LOGGER.info(
-						"An error occurred while processing the queuery http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
+						"An error occurred while processing the query http response. Occurrence while processing the http response to the queuey request for: {1}, exception message: {0}",
 						e, q);
 				throw new ConnectorIOException(errorBuilder.toString(), e);
 			}
@@ -519,7 +504,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	@Override
 	public Uid update(Uid uid, String resourceEndPoint, ObjectTranslator objectTranslator, Set<Attribute> attributes,
 			ScimConnectorConfiguration conf) {
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf);
+		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
 		Header authHeader = accessManager.getAuthHeader();
 		String scimBaseUri = accessManager.getBaseUri();
@@ -655,7 +640,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	@Override
 	public void delete(Uid uid, String resourceEndPoint, ScimConnectorConfiguration conf) {
 
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf);
+		ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
 
 		Header authHeader = accessManager.getAuthHeader();
 		String scimBaseUri = accessManager.getBaseUri();
@@ -729,149 +714,103 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 	}
 
 	@Override
-	public ParserSchemaScim querySchemas(String providerName, String resourceEndPoint,
-			ScimConnectorConfiguration conf) {
-		
-		List<String> excludedAttrs = new ArrayList<String>();
-		ServiceAccessManager accessManager = new ServiceAccessManager(conf);
+	public ParserSchemaScim querySchemas(final String providerName, final String schemaEndPoint,
+			final String usersEndpoint, final String groupsEndpoint, final ScimConnectorConfiguration conf) {
 
-		Header authHeader = accessManager.getAuthHeader();
-		String scimBaseUri = accessManager.getBaseUri();
+		final ServiceAccessManager accessManager = new ServiceAccessManager(conf, this);
+		final Header authHeader = accessManager.getAuthHeader();
+		final String scimBaseUri = accessManager.getBaseUri();
 
 		if (authHeader == null || scimBaseUri.isEmpty()) {
-
 			throw new ConnectorException("The data needed for authorization of request to the provider was not found.");
 		}
 
-		HttpClient httpClient = initHttpClient(conf);
+		final HttpClient schemaHttpClient = initHttpClient(conf);
+		final List<String> schemaUrls = List.of(
+				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).toString(),
+				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).append(usersEndpoint).toString(),
+				new StringBuilder(scimBaseUri).append(SLASH).append(schemaEndPoint).append(groupsEndpoint).toString());
 
-		String uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).toString();
+		List<String> excludedAttrs = new ArrayList<String>();
+		String responseString = "";
+		int statusCode = 0;
+		JSONObject responseObject = new JSONObject();
+		JSONArray responseArray = new JSONArray();
 
-		LOGGER.info("Qeury url: {0}", uri);
-		HttpGet httpGet = buildHttpGet(uri, authHeader);
-		try (CloseableHttpResponse response = (CloseableHttpResponse) httpClient.execute(httpGet)) {
-			HttpEntity entity = response.getEntity();
-			String responseString;
-			if (entity != null) {
-				responseString = EntityUtils.toString(entity);
-			} else {
-				responseString = "";
-			}
+		for (final String url : schemaUrls) {
+			final HttpGet schemaHttpGet = buildHttpGet(url, authHeader);
+			LOGGER.info("Query url: {0}", url);
 
-			int statusCode = response.getStatusLine().getStatusCode();
-			LOGGER.info("Schema query status code: {0} ", statusCode);
-			if (statusCode == 200) {
+			try (final CloseableHttpResponse response = (CloseableHttpResponse) schemaHttpClient.execute(schemaHttpGet)) {
+				final HttpEntity entity = response.getEntity();
 
-				if (!responseString.isEmpty()) {
-
-					//LOGGER.warn("The returned response string for the \"schemas/\" endpoint");
-
-					JSONObject jsonObject = new JSONObject(responseString);
-
-					ParserSchemaScim schemaParser = processSchemaResponse(jsonObject);
-					
-					
-					excludedAttrs= excludeFromAssembly(excludedAttrs);
-					
-					for(String attr: excludedAttrs){
-						LOGGER.info("The attribute \"{0}\" will be omitted from the connId object build.", attr);
-					}
-
-					return schemaParser;
-
+				if (entity != null) {
+					responseString = EntityUtils.toString(entity);
 				} else {
-
-					LOGGER.warn("Response string for the \"schemas/\" endpoint returned empty ");
-
-					String resources[] = { USERS, GROUPS };
-					JSONObject responseObject = new JSONObject();
-					JSONArray responseArray = new JSONArray();
-					for (String resourceName : resources) {
-						uri = new StringBuilder(scimBaseUri).append(SLASH).append(resourceEndPoint).append(resourceName)
-								.toString();
-						LOGGER.info("Additional query url: {0}", uri);
-
-						httpGet = buildHttpGet(uri, authHeader);
-
-						try (CloseableHttpResponse secondaryResponse = (CloseableHttpResponse) httpClient
-								.execute(httpGet)) {
-
-							statusCode = secondaryResponse.getStatusLine().getStatusCode();
-							responseString = EntityUtils.toString(secondaryResponse.getEntity());
-
-							if (statusCode == 200 && responseString !=null && !responseString.isEmpty()) {
-							
-								/*LOGGER.info(
-										"Schema endpoint response: {0}", responseString);
-								*/
-								JSONObject jsonObject = new JSONObject(responseString);
-								jsonObject = injectMissingSchemaAttributes(resourceName, jsonObject);
-
-								responseArray.put(jsonObject);
-							
-							} else {
-
-								LOGGER.warn(
-										"No definition for provided shcemas was found, the connector will switch to default core schema configuration!");
-								return null;
-							}
-						}
-						responseObject.put(RESOURCES, responseArray);
-
-					}
-					if (responseObject == JSONObject.NULL) {
-
-						return null;
-
-					} else {
-						
-						excludedAttrs= excludeFromAssembly(excludedAttrs);
-						
-						for(String attr: excludedAttrs){
-							LOGGER.info("The attribute \"{0}\" will be omitted from the connId object build.", attr);
-						}
-
-						return processSchemaResponse(responseObject);
-					}
+					responseString = "";
 				}
 
-			} else {
+				statusCode = response.getStatusLine().getStatusCode();
+				LOGGER.info("Schema query status code: {0} ", statusCode);
 
-				handleInvalidStatus("while querying for schema. ", responseString, "schema", statusCode);
-			}
-		} catch (ClientProtocolException e) {
-			LOGGER.error(
-					"An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification: {0}",
-					e.getLocalizedMessage());
-			LOGGER.info(
-					"An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification: {0}",
-					e);
-			throw new ConnectorException(
-					"An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification",
-					e);
-		} catch (IOException e) {
+				if (statusCode == 200 && responseString !=null && !responseString.isEmpty()) {
+					final JSONObject jsonObject = injectMissingSchemaAttributes(url, new JSONObject(responseString));
 
-			StringBuilder errorBuilder = new StringBuilder(
-					"An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object");
+					excludedAttrs = excludeFromAssembly(excludedAttrs);
+					for (final String attribute : excludedAttrs) {
+						LOGGER.ok("The attribute \"{0}\" will be omitted from the connId object build.", attribute);
+					}
 
-			if ((e instanceof SocketTimeoutException || e instanceof NoRouteToHostException)) {
+					if (url.equals(schemaUrls.get(0))) {
+						responseObject = jsonObject;
+						break; //skip Users and Groups if plain /Schemas/ succeeds
 
-				errorBuilder.insert(0, "The connection timed out. ");
+					} else {
+						responseArray.put(jsonObject);
+						responseObject.put(RESOURCES, responseArray);
+					}
 
-				throw new OperationTimeoutException(errorBuilder.toString(), e);
-			} else {
+				} else {
+					LOGGER.ok("Invalid status code {0} or empty response for query {1}.", statusCode, url);
+				}
 
-				LOGGER.error(
-						"An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object: {0}",
-						e.getLocalizedMessage());
-				LOGGER.info(
-						"An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object: {0}",
-						e);
+			} catch (ClientProtocolException ce) {
+				LOGGER.error("An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification: {0}", ce.getLocalizedMessage());
+				LOGGER.info("An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification: {0}", ce);
+				throw new ConnectorException("An protocol exception has occurred while in the process of querying the provider Schemas resource object. Possible mismatch in interpretation of the HTTP specification", ce);
 
-				throw new ConnectorIOException(errorBuilder.toString(), e);
+			} catch (IOException ioe) {
+				final StringBuilder errorBuilder = new StringBuilder("An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object");
+
+				if ((ioe instanceof SocketTimeoutException || ioe instanceof NoRouteToHostException)) {
+					errorBuilder.insert(0, "The connection timed out. ");
+					throw new OperationTimeoutException(errorBuilder.toString(), ioe);
+				} else {
+					LOGGER.error("An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object: {0}", ioe.getLocalizedMessage());
+					LOGGER.info("An error has occurred while processing the http response. Occurrence in the process of querying the provider Schemas resource object: {0}", ioe);
+					throw new ConnectorIOException(errorBuilder.toString(), ioe);
+				}
+
+			} catch (Exception e) {
+				LOGGER.ok("Error while querying for schema attempting different url endpoints. [" + statusCode + "],[" + responseString + "]", e);
 			}
 		}
 
+		if (statusCode != 200) {
+			try {
+				handleInvalidStatus("while querying for schema. ", responseString, "schema", statusCode);
+			} catch (IOException ioe) {
+				LOGGER.error("Error processing invalid status code. ", ioe);
+			}
+		} else if (responseObject == JSONObject.NULL) {
+			LOGGER.warn("No definition for provided schemas was found! The connector will switch to default generic scim schema configuration!");
+			return null;
+
+		} else {
+			return processSchemaResponse(responseObject);
+		}
+
+		LOGGER.ok("Error or empty result during schema processing! The connector will switch to default generic scim schema configuration!");
 		return null;
 	}
 
@@ -897,7 +836,7 @@ public class StandardScimHandlingStrategy implements HandlingStrategy {
 				LOGGER.error("No endpoint identifier present in fetched object: {0}", minResourceJson);
 
 				throw new ConnectorException(
-						"No endpoint identifier present in fetched object while processing queuery result");
+						"No endpoint identifier present in fetched object while processing query result");
 			}
 		}
 		return scimParser;
@@ -1448,15 +1387,15 @@ LOGGER.info("The sub property name: {0}", subPropertyName);
 	 * Called when the query is evaluated as an filter not containing an uid
 	 * type attribute.
 	 * 
-	 * @param endPoint
-	 *            The name of the endpoint which should be queried (e.g.
-	 *            "Users").
 	 * @param query
 	 *            The provided filter query.
-	 * @param resultHandler
-	 *            The provided result handler used to handle the query result.
 	 * @param queryUriSnippet
 	 *            A part of the query uri which will build a larger query.
+	 * @param providerName
+	 * 			  The name of the provider.
+	 * @param resourceEndPoint
+	 *            The name of the endpoint which should be queried (e.g.
+	 *            "Users").
 	 */
 
 	private String qIsFilter(Filter query, StringBuilder queryUriSnippet, String providerName,

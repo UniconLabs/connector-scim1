@@ -302,7 +302,9 @@ public interface HandlingStrategy {
 	 *      
 	 */
 
-	public ParserSchemaScim querySchemas(String providerName, String resourceEndPoint, ScimConnectorConfiguration conf);
+	public ParserSchemaScim querySchemas(final String providerName, final String schemaEndPoint,
+										 final String usersEndpoint, final String groupsEndpoint,
+										 final ScimConnectorConfiguration conf);
 
 	/**
 	 * Workaround method which checks the json schema representation returned

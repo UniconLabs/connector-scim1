@@ -63,9 +63,9 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 	private ScimConnectorConfiguration configuration;
 
-	private static final String SCHEMAS = "Schemas/";
-	private static final String USERS = "Users";
-	private static final String GROUPS = "Groups";
+	private static final String SCHEMAS_ENDPOINT = "Schemas/";
+	private static final String USERS_ENDPOINT = "Users";
+	private static final String GROUPS_ENDPOINT = "Groups";
 	private static final String DEFAULT = "default";
 	private static final String DELETE = "delete";
 	private Schema schema = null;
@@ -84,8 +84,8 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 		LOGGER.info("Building schema definition");
 
 		if (schema == null) {
-			SchemaBuilder schemaBuilder = new SchemaBuilder(ScimConnector.class);
-			ParserSchemaScim schemaParser = strategy.querySchemas(providerName, SCHEMAS, configuration);
+			final SchemaBuilder schemaBuilder = new SchemaBuilder(ScimConnector.class);
+			final ParserSchemaScim schemaParser = strategy.querySchemas(providerName, SCHEMAS_ENDPOINT, USERS_ENDPOINT, GROUPS_ENDPOINT, configuration);
 
 			if (schemaParser != null) {
 				buildSchemas(schemaBuilder, schemaParser);
@@ -124,11 +124,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
-			strategy.delete(uid, USERS, configuration);
+			strategy.delete(uid, USERS_ENDPOINT, configuration);
 
 		} else if (endpointName.equals(ObjectClass.GROUP.getObjectClassValue())) {
 
-			strategy.delete(uid, GROUPS, configuration);
+			strategy.delete(uid, GROUPS_ENDPOINT, configuration);
 		} else {
 
 			strategy.delete(uid, endpointName, configuration);
@@ -159,12 +159,12 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 			injectedAttributeSet = strategy.addAttributesToInject(injectedAttributeSet);
 
-			uid = strategy.create(USERS, jsonDataBuilder, attribute, injectedAttributeSet, configuration);
+			uid = strategy.create(USERS_ENDPOINT, jsonDataBuilder, attribute, injectedAttributeSet, configuration);
 
 		} else if (endpointName.equals(ObjectClass.GROUP.getObjectClassValue())) {
 			injectedAttributeSet = strategy.addAttributesToInject(injectedAttributeSet);
 
-			uid = strategy.create(GROUPS, jsonDataBuilder, attribute, injectedAttributeSet, configuration);
+			uid = strategy.create(GROUPS_ENDPOINT, jsonDataBuilder, attribute, injectedAttributeSet, configuration);
 
 		} else {
 			injectedAttributeSet = strategy.addAttributesToInject(injectedAttributeSet);
@@ -200,13 +200,19 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 			loginUrl = this.configuration.getBaseUrl();
 		}
 
-		strategy = new StrategyFetcher().fetchStrategy(loginUrl);
-		providerName = strategy.getStrategyName();
+		if (this.configuration.getProvider() != null && !this.configuration.getProvider().isEmpty()) {
+			providerName = this.configuration.getProvider().trim().toLowerCase();
+			strategy = new StrategyFetcher().fetchStrategy(providerName);
+		} else {
+			strategy = new StrategyFetcher().fetchStrategy(loginUrl);
+			providerName = strategy.getStrategyName();
+		}
 
 		if (providerName.equalsIgnoreCase("standard")) {
 			final String[] loginUrlParts = loginUrl.split("\\.");
-		if (loginUrlParts.length >= 2) {
-			providerName = loginUrlParts[1];
+
+			if (loginUrlParts.length >= 2) {
+				providerName = loginUrlParts[1];
 			} else {
 				providerName = "";
 			}
@@ -218,7 +224,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 	 * Implementation of the connId update method. The method evaluates if
 	 * generic methods can be applied to the query. If not the methods
 	 * implemented for core schema processing are applied. This method is used
-	 * to update singular and non complex attributes, e.g. name.familyname.
+	 * to update singular and non-complex attributes, e.g. name.familyname.
 	 * 
 	 * @return the Uid of the updated object.
 	 **/
@@ -237,11 +243,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
-			uid = strategy.update(id, USERS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, USERS_ENDPOINT, genericDataBuilder, attributes, configuration);
 
 		} else if (endpointName.equals(ObjectClass.GROUP.getObjectClassValue())) {
 
-			uid = strategy.update(id, GROUPS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, GROUPS_ENDPOINT, genericDataBuilder, attributes, configuration);
 		} else {
 			uid = strategy.update(id, endpointName, genericDataBuilder, attributes, configuration);
 
@@ -256,9 +262,9 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 		LOGGER.info("Test");
 
 		if (configuration != null) {
-		ServiceAccessManager accessManager = new ServiceAccessManager(configuration);
+			final ServiceAccessManager accessManager = new ServiceAccessManager(configuration, strategy);
 
-		String baseUri = accessManager.getBaseUri();
+			final String baseUri = accessManager.getBaseUri();
 		
 			if (baseUri !=null && !baseUri.isEmpty()) {
 				LOGGER.info("Test was succesfull");
@@ -312,17 +318,17 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (handler == null) {
 
-			LOGGER.error("Result handler for queuery is null");
-			throw new ConnectorException("Result handler for queuery can not be null");
+			LOGGER.error("Result handler for query is null");
+			throw new ConnectorException("Result handler for query can not be null");
 		}
 
 		if (ObjectClass.ACCOUNT.getObjectClassValue().equals(endpointName)) {
 
-			strategy.query(query, queryUriSnippet, USERS, handler, configuration);
+			strategy.query(query, queryUriSnippet, USERS_ENDPOINT, handler, configuration);
 
 		} else if (ObjectClass.GROUP.getObjectClassValue().equals(endpointName)) {
 
-			strategy.query(query, queryUriSnippet, GROUPS, handler, configuration);
+			strategy.query(query, queryUriSnippet, GROUPS_ENDPOINT, handler, configuration);
 
 		} else {
 
@@ -359,7 +365,7 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 				if ("endpoint".equals(key)) {
 					String schemaName = hlAtrribute.get(key);
 					ObjectClassInfo oclassInfo = schemaObjectBuilder.buildSchema(attributeMap, schemaName,
-							providerName);
+							strategy);
 					schemaBuilder.defineObjectClass(oclassInfo);
 				}
 			}
@@ -419,11 +425,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
-			uid = strategy.update(id, USERS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, USERS_ENDPOINT, genericDataBuilder, attributes, configuration);
 
 		} else if (endpointName.equals(ObjectClass.GROUP.getObjectClassValue())) {
 
-			uid = strategy.update(id, GROUPS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, GROUPS_ENDPOINT, genericDataBuilder, attributes, configuration);
 		} else {
 			uid = strategy.update(id, endpointName, genericDataBuilder, attributes, configuration);
 		}
@@ -457,11 +463,11 @@ public class ScimConnector implements Connector, CreateOp, DeleteOp, SchemaOp, S
 
 		if (endpointName.equals(ObjectClass.ACCOUNT.getObjectClassValue())) {
 
-			uid = strategy.update(id, USERS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, USERS_ENDPOINT, genericDataBuilder, attributes, configuration);
 
 		} else if (endpointName.equals(ObjectClass.GROUP.getObjectClassValue())) {
 
-			uid = strategy.update(id, GROUPS, genericDataBuilder, attributes, configuration);
+			uid = strategy.update(id, GROUPS_ENDPOINT, genericDataBuilder, attributes, configuration);
 
 		} else {
 
